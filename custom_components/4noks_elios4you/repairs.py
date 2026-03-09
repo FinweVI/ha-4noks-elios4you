@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, NOTIFICATION_RECOVERY
+from .helpers import log_debug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,12 @@ def create_connection_issue(
             "port": str(port),
         },
     )
-    _LOGGER.debug("Created repair issue for connection failure: %s", device_name)
+    log_debug(
+        _LOGGER,
+        "create_connection_issue",
+        "Created repair issue for connection failure",
+        device=device_name,
+    )
 
 
 def delete_connection_issue(hass: HomeAssistant, entry_id: str) -> None:
@@ -64,7 +70,7 @@ def delete_connection_issue(hass: HomeAssistant, entry_id: str) -> None:
 
     """
     ir.async_delete_issue(hass, DOMAIN, f"{ISSUE_CONNECTION_FAILED}_{entry_id}")
-    _LOGGER.debug("Deleted repair issue for entry: %s", entry_id)
+    log_debug(_LOGGER, "delete_connection_issue", "Deleted repair issue", entry_id=entry_id)
 
 
 def create_recovery_notification(
@@ -128,11 +134,13 @@ def create_recovery_notification(
         )
     )
 
-    _LOGGER.debug(
-        "Created recovery notification for %s (started: %s, ended: %s, downtime: %s, script: %s)",
-        device_name,
-        started_at,
-        ended_at,
-        downtime,
-        script_name,
+    log_debug(
+        _LOGGER,
+        "create_recovery_notification",
+        "Created recovery notification",
+        device=device_name,
+        started_at=started_at,
+        ended_at=ended_at,
+        downtime=downtime,
+        script=script_name,
     )

@@ -32,12 +32,14 @@ from .const import (
     CONF_HOST,
     CONF_NAME,
     CONF_PORT,
+    CONF_POWER_REDUCER,
     CONF_RECOVERY_SCRIPT,
     CONF_SCAN_INTERVAL,
     DEFAULT_ENABLE_REPAIR_NOTIFICATION,
     DEFAULT_FAILURES_THRESHOLD,
     DEFAULT_NAME,
     DEFAULT_PORT,
+    DEFAULT_POWER_REDUCER,
     DEFAULT_RECOVERY_SCRIPT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -114,6 +116,7 @@ class Elios4YouConfigFlow(ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST]
             port = user_input[CONF_PORT]
             scan_interval = user_input[CONF_SCAN_INTERVAL]
+            power_reducer = user_input[CONF_POWER_REDUCER]
 
             if self._host_in_configuration_exists(host):
                 errors[CONF_HOST] = "already_configured"
@@ -136,6 +139,7 @@ class Elios4YouConfigFlow(ConfigFlow, domain=DOMAIN):
                         },
                         options={
                             CONF_SCAN_INTERVAL: scan_interval,
+                            CONF_POWER_REDUCER: power_reducer,
                         },
                     )
 
@@ -163,6 +167,10 @@ class Elios4YouConfigFlow(ConfigFlow, domain=DOMAIN):
                         vol.Coerce(int),
                         vol.Clamp(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                     ),
+                    vol.Required(
+                        CONF_POWER_REDUCER,
+                        default=DEFAULT_POWER_REDUCER,
+                    ): cv.boolean,
                 },
             ),
             errors=errors,
@@ -259,6 +267,7 @@ class Elios4YouOptionsFlow(OptionsFlowWithReload):
                 "async_step_init",
                 "Options updated",
                 scan_interval=user_input.get(CONF_SCAN_INTERVAL),
+                power_reducer=user_input.get(CONF_POWER_REDUCER),
                 enable_repair_notification=user_input.get(CONF_ENABLE_REPAIR_NOTIFICATION),
                 failures_threshold=user_input.get(CONF_FAILURES_THRESHOLD),
                 recovery_script=user_input.get(CONF_RECOVERY_SCRIPT),
@@ -267,6 +276,7 @@ class Elios4YouOptionsFlow(OptionsFlowWithReload):
 
         # Get current options with defaults
         current_options = self.config_entry.options
+        power_reducer = current_options.get(CONF_POWER_REDUCER, DEFAULT_POWER_REDUCER)
         enable_repair = current_options.get(
             CONF_ENABLE_REPAIR_NOTIFICATION, DEFAULT_ENABLE_REPAIR_NOTIFICATION
         )
@@ -279,19 +289,24 @@ class Elios4YouOptionsFlow(OptionsFlowWithReload):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    # 1. Recovery script (right after variables description)
+                    # 1. Power Reducer module checkbox
+                    vol.Required(
+                        CONF_POWER_REDUCER,
+                        default=power_reducer,
+                    ): cv.boolean,
+                    # 2. Recovery script (right after variables description)
                     vol.Optional(
                         CONF_RECOVERY_SCRIPT,
                         default=recovery_script,
                     ): EntitySelector(
                         EntitySelectorConfig(domain="script"),
                     ),
-                    # 2. Enable repair notifications checkbox
+                    # 3. Enable repair notifications checkbox
                     vol.Required(
                         CONF_ENABLE_REPAIR_NOTIFICATION,
                         default=enable_repair,
                     ): cv.boolean,
-                    # 3. Failures threshold as input box (not slider)
+                    # 4. Failures threshold as input box (not slider)
                     vol.Required(
                         CONF_FAILURES_THRESHOLD,
                         default=failures_threshold,
@@ -302,7 +317,7 @@ class Elios4YouOptionsFlow(OptionsFlowWithReload):
                             mode=NumberSelectorMode.BOX,
                         )
                     ),
-                    # 4. Polling period at bottom
+                    # 5. Polling period at bottom
                     vol.Required(
                         CONF_SCAN_INTERVAL,
                         default=current_options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),

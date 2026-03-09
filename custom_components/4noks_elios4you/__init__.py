@@ -12,8 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import CoreState, HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 
 from .const import (
@@ -128,9 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: Elios4YouConfigEn
 
 
 @callback
-def _async_apply_pr_entity_state(
-    hass: HomeAssistant, config_entry: Elios4YouConfigEntry
-) -> None:
+def _async_apply_pr_entity_state(hass: HomeAssistant, config_entry: Elios4YouConfigEntry) -> None:
     """Enable or disable Power Reducer entities in the entity registry.
 
     Only acts when the option has been explicitly set (not None).
@@ -157,13 +154,12 @@ def _async_apply_pr_entity_state(
             # Enable entities that were disabled by the integration (not by the user).
             if entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
                 ent_reg.async_update_entity(entry.entity_id, disabled_by=None)
-        else:
-            # Disable entities that are currently enabled.
-            if entry.disabled_by is None:
-                ent_reg.async_update_entity(
-                    entry.entity_id,
-                    disabled_by=er.RegistryEntryDisabler.INTEGRATION,
-                )
+        # Disable entities that are currently enabled.
+        elif entry.disabled_by is None:
+            ent_reg.async_update_entity(
+                entry.entity_id,
+                disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+            )
 
     log_debug(
         _LOGGER,

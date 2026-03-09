@@ -75,6 +75,11 @@ class Elios4YouBinarySensor(CoordinatorEntity[Elios4YouCoordinator], BinarySenso
         return f"{DOMAIN}_{self._device_sn}_{self._key}"
 
     @property
+    def suggested_object_id(self) -> str | None:
+        """Return a stable English-based object ID regardless of HA language."""
+        return self._key
+
+    @property
     def is_on(self) -> bool | None:
         """Return True when the binary value is 1 (active/warning)."""
         val = self.coordinator.api.data.get(self._key)

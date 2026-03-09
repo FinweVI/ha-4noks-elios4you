@@ -8,11 +8,11 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
 # Direct imports using symlink (fournoks_elios4you -> 4noks_elios4you)
 from custom_components.fournoks_elios4you.const import CONF_SCAN_INTERVAL, DOMAIN, VERSION
 from custom_components.fournoks_elios4you.diagnostics import async_get_config_entry_diagnostics
-import pytest
-
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant
 
