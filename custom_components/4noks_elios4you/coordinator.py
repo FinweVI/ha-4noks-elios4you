@@ -74,7 +74,6 @@ class Elios4YouCoordinator(DataUpdateCoordinator):
         )
 
         self.last_update_time = datetime.now(tz=UTC)
-        self.last_update_success = True
         self._consecutive_failures = 0
         self._repair_issue_created = False
         self._recovery_script_executed = False
@@ -127,7 +126,7 @@ class Elios4YouCoordinator(DataUpdateCoordinator):
         """Update data method."""
         log_debug(_LOGGER, "async_update_data", "Update started", time=datetime.now(tz=UTC))
         try:
-            self.last_update_status = await self.api.async_get_data()
+            await self.api.async_get_data()
             self.last_update_time = datetime.now(tz=UTC)
             log_debug(
                 _LOGGER,
@@ -206,7 +205,6 @@ class Elios4YouCoordinator(DataUpdateCoordinator):
             # Reset failure counter on success
             self._consecutive_failures = 0
         except Exception as ex:
-            self.last_update_status = False
             self._consecutive_failures += 1
 
             # Determine error type for device trigger
@@ -269,7 +267,7 @@ class Elios4YouCoordinator(DataUpdateCoordinator):
 
             raise UpdateFailed from ex
 
-        return self.last_update_status
+        return True
 
     async def _execute_recovery_script(self) -> None:
         """Execute the configured recovery script."""

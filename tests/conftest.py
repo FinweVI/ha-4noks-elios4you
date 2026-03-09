@@ -21,7 +21,6 @@ from custom_components.fournoks_elios4you import (
     config_flow as _elios4you_config_flow,
 )
 from custom_components.fournoks_elios4you.const import CONF_SCAN_INTERVAL
-
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import CoreState, HomeAssistant
 

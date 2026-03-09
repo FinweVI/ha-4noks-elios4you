@@ -19,6 +19,7 @@ from .coordinator import Elios4YouCoordinator
 from .helpers import log_debug
 
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -35,11 +36,11 @@ async def async_setup_entry(
         "async_setup_entry",
         "Setting up sensors",
         name=config_entry.data.get(CONF_NAME),
-        manufacturer=coordinator.api.data["manufact"],
-        model=coordinator.api.data["model"],
-        hw_version=coordinator.api.data["hwver"],
-        sw_version=coordinator.api.data["swver"],
-        serial_number=coordinator.api.data["sn"],
+        manufacturer=coordinator.api.data.get("manufact"),
+        model=coordinator.api.data.get("model"),
+        hw_version=coordinator.api.data.get("hwver"),
+        sw_version=coordinator.api.data.get("swver"),
+        serial_number=coordinator.api.data.get("sn"),
     )
 
     sensors = []
@@ -56,6 +57,8 @@ async def async_setup_entry(
                     sensor_def["state_class"],
                     sensor_def["unit"],
                     sensor_def["enabled_default"],
+                    sensor_def.get("options"),
+                    sensor_def.get("entity_category"),
                 )
             )
 
@@ -77,31 +80,40 @@ class Elios4YouSensor(CoordinatorEntity[Elios4YouCoordinator], SensorEntity):
         state_class: SensorStateClass | None,
         unit: str | None,
         enabled_default: bool,
+        options: list[str] | None = None,
+        entity_category_override: EntityCategory | None = None,
     ) -> None:
         """Class Initializitation."""
         super().__init__(coordinator)
-        self._coordinator = coordinator
         self._key = key
         self._icon = icon
         self._device_class = device_class
         self._state_class = state_class
         self._unit_of_measurement = unit
-        self._device_name: str = self._coordinator.api.name
-        self._device_host: str = self._coordinator.api.host
-        self._device_model: str = str(self._coordinator.api.data.get("model", ""))
-        self._device_manufact: str = str(self._coordinator.api.data.get("manufact", ""))
-        self._device_sn: str = str(self._coordinator.api.data.get("sn", ""))
-        self._device_swver: str = str(self._coordinator.api.data.get("swver", ""))
-        self._device_hwver: str = str(self._coordinator.api.data.get("hwver", ""))
+        self._entity_category_override = entity_category_override
+        self._device_name: str = self.coordinator.api.name
+        self._device_host: str = self.coordinator.api.host
+        self._device_model: str = str(self.coordinator.api.data.get("model", ""))
+        self._device_manufact: str = str(self.coordinator.api.data.get("manufact", ""))
+        self._device_sn: str = str(self.coordinator.api.data.get("sn", ""))
+        self._device_swver: str = str(self.coordinator.api.data.get("swver", ""))
+        self._device_hwver: str = str(self.coordinator.api.data.get("hwver", ""))
         # Use translation key for entity name (translations in translations/*.json)
         self._attr_translation_key = key
         # Entity registry enabled default (False = disabled by default in UI)
         self._attr_entity_registry_enabled_default = enabled_default
+        # ENUM sensors require options list
+        if options is not None:
+            self._attr_options = options
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        """Return a stable English-based object ID regardless of HA language."""
+        return self._key
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Fetch new state data for the sensor."""
-        self._state = self._coordinator.api.data[self._key]
         self.async_write_ha_state()
         # write debug log only on first sensor to avoid spamming the log
         if self._key == "rcap":
@@ -134,6 +146,12 @@ class Elios4YouSensor(CoordinatorEntity[Elios4YouCoordinator], SensorEntity):
     @property
     def entity_category(self) -> EntityCategory | None:
         """Return the sensor entity_category."""
+        # Explicit override from sensor definition takes precedence.
+        if self._entity_category_override is not None:
+            return self._entity_category_override
+        # ENUM sensors represent operational state (e.g. Power Reducer Mode), not diagnostics.
+        if self._device_class == SensorDeviceClass.ENUM:
+            return None
         if self._state_class is None:
             return EntityCategory.DIAGNOSTIC
         return None
@@ -141,19 +159,9 @@ class Elios4YouSensor(CoordinatorEntity[Elios4YouCoordinator], SensorEntity):
     @property
     def native_value(self) -> int | float | str | None:
         """Return the state of the sensor."""
-        if self._key in self._coordinator.api.data:
-            return self._coordinator.api.data[self._key]
+        if self._key in self.coordinator.api.data:
+            return self.coordinator.api.data[self._key]
         return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return the extra state attributes."""
-        return None
-
-    @property
-    def should_poll(self) -> bool:
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
 
     @property
     def unique_id(self) -> str:

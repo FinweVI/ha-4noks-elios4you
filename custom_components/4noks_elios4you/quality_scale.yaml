@@ -11,8 +11,11 @@ rules:
 
   # Rule: Service actions are registered in async_setup
   action-setup:
-    status: exempt
-    comment: Integration does not define any service actions.
+    status: done
+    comment: >
+      Scheduler services (get_schedule, set_schedule, set_schedule_range) are
+      registered in async_setup so they are set up once at domain load time,
+      not per config entry.
 
   # Rule: If it's a polling integration, set an appropriate polling interval
   appropriate-polling: done # Configurable scan_interval (30-600s) via options flow
@@ -24,7 +27,7 @@ rules:
   common-modules: done # coordinator.py, helpers.py, api.py
 
   # Rule: Integration needs to be able to be set up via the UI
-  config-flow: done # UI setup via config_flow.py with VERSION = 2
+  config-flow: done # UI setup via config_flow.py with VERSION = 3
 
   # Rule: Full test coverage for the config flow
   config-flow-test-coverage: done # tests/test_config_flow.py covers all flows
@@ -34,8 +37,11 @@ rules:
 
   # Rule: The documentation describes the provided service actions
   docs-actions:
-    status: exempt
-    comment: Integration does not define any service actions.
+    status: todo
+    comment: >
+      Three scheduler services (get_schedule, set_schedule, set_schedule_range)
+      exist but are not yet documented in README.md. Documentation should be added
+      describing each service, its parameters, and example usage.
 
   # Rule: The documentation includes a high-level description
   docs-high-level-description: done # README.md describes Elios4you device
@@ -73,8 +79,10 @@ rules:
 
   # Rule: Service actions raise exceptions when encountering failures
   action-exceptions:
-    status: exempt
-    comment: Integration does not define any service actions.
+    status: done
+    comment: >
+      Scheduler services raise ServiceValidationError on all failure paths
+      (invalid parameters, device communication failures).
 
   # Rule: Support config entry unloading
   config-entry-unloading: done # async_unload_entry properly cleans up
@@ -96,8 +104,8 @@ rules:
 
   # Rule: Number of parallel updates is specified
   parallel-updates:
-    status: exempt
-    comment: Uses DataUpdateCoordinator, PARALLEL_UPDATES not needed.
+    status: done
+    comment: PARALLEL_UPDATES = 0 set in all platform modules (coordinator handles all updates).
 
   # Rule: Reauthentication needs to be available via the UI
   reauthentication-flow:

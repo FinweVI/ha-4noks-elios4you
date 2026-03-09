@@ -8,12 +8,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.components.persistent_notification import async_create as pn_async_create
 from homeassistant.helpers import issue_registry as ir
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, NOTIFICATION_RECOVERY
+from .helpers import log_debug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +54,12 @@ def create_connection_issue(
             "port": str(port),
         },
     )
-    _LOGGER.debug("Created repair issue for connection failure: %s", device_name)
+    log_debug(
+        _LOGGER,
+        "create_connection_issue",
+        "Created repair issue for connection failure",
+        device=device_name,
+    )
 
 
 def delete_connection_issue(hass: HomeAssistant, entry_id: str) -> None:
@@ -64,7 +71,7 @@ def delete_connection_issue(hass: HomeAssistant, entry_id: str) -> None:
 
     """
     ir.async_delete_issue(hass, DOMAIN, f"{ISSUE_CONNECTION_FAILED}_{entry_id}")
-    _LOGGER.debug("Deleted repair issue for entry: %s", entry_id)
+    log_debug(_LOGGER, "delete_connection_issue", "Deleted repair issue", entry_id=entry_id)
 
 
 def create_recovery_notification(
@@ -115,24 +122,16 @@ def create_recovery_notification(
     title = f"{device_name} has recovered"
     notification_id = f"{DOMAIN}_{NOTIFICATION_RECOVERY}_{entry_id}"
 
-    # Use persistent_notification service for immediate display
-    hass.async_create_task(
-        hass.services.async_call(
-            domain="persistent_notification",
-            service="create",
-            service_data={
-                "title": title,
-                "message": message,
-                "notification_id": notification_id,
-            },
-        )
-    )
+    # Use persistent_notification helper (synchronous, no fire-and-forget risk)
+    pn_async_create(hass, message, title=title, notification_id=notification_id)
 
-    _LOGGER.debug(
-        "Created recovery notification for %s (started: %s, ended: %s, downtime: %s, script: %s)",
-        device_name,
-        started_at,
-        ended_at,
-        downtime,
-        script_name,
+    log_debug(
+        _LOGGER,
+        "create_recovery_notification",
+        "Created recovery notification",
+        device=device_name,
+        started_at=started_at,
+        ended_at=ended_at,
+        downtime=downtime,
+        script=script_name,
     )

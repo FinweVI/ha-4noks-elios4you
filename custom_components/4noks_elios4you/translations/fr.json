@@ -3,12 +3,13 @@
     "step": {
       "user": {
         "title": "Configuration de la connexion Elios4You",
-        "description": "Si vous avez besoin d'aide pour la configuration, visitez: https://github.com/alexdelprete/ha-4noks-elios4you",
+        "description": "Si vous avez besoin d'aide pour la configuration, visitez: {docs_url}",
         "data": {
           "name": "Nom de l'appareil (utilise comme prefixe des capteurs)",
           "host": "IP ou nom d'hote",
           "port": "Port TCP (1-65535)",
-          "scan_interval": "Intervalle d'interrogation en secondes (30-600)"
+          "scan_interval": "Intervalle d'interrogation en secondes (30-600)",
+          "power_reducer": "Installation du Module Power Reducer"
         }
       },
       "reconfigure": {
@@ -38,6 +39,7 @@
         "title": "Options Elios4You",
         "description": "Configurer les options d'execution",
         "data": {
+          "power_reducer": "Installation du Module Power Reducer",
           "scan_interval": "Intervalle d'interrogation en secondes (30-600)",
           "enable_repair_notification": "Activer les notifications de reparation",
           "failures_threshold": "Echecs avant notification (1-10)",
@@ -79,7 +81,7 @@
       "alarm_2": { "name": "Alarme 2" },
       "power_alarm": { "name": "Alarme Puissance" },
       "pwm_mode": { "name": "Mode PWM" },
-      "pr_ssv": { "name": "Reducteur Puissance Ssv" },
+      "pr_ssv": { "name": "Power Reducer Ssv" },
       "rel_ssv": { "name": "Relais Ssv" },
       "rel_mode": { "name": "Mode Relais" },
       "rel_warning": { "name": "Avertissement Relais" },
@@ -92,13 +94,48 @@
       "hw_wifi": { "name": "Version HW Wifi" },
       "s2w_app_version": { "name": "Version App Wifi" },
       "s2w_geps_version": { "name": "Version Geps Wifi" },
-      "s2w_wlan_version": { "name": "Version Wlan Wifi" }
+      "s2w_wlan_version": { "name": "Version Wlan Wifi" },
+      "reducer_power": { "name": "Sortie Power Reducer" },
+      "boost_remaining": { "name": "Temps restant du Boost" },
+      "boost_power": { "name": "Niveau de puissance du Boost" },
+      "boost_delay": { "name": "Durée totale du Boost" },
+      "pr_mode": {
+        "name": "Mode Power Reducer",
+        "state": {
+          "auto": "Auto",
+          "boost": "Boost",
+          "force_off": "Arrêt forcé"
+        }
+      },
+      "device_clock_utc": { "name": "Device Clock UTC" },
+      "clock_drift": { "name": "Clock Drift" }
+    },
+    "binary_sensor": {
+      "boost_active": { "name": "Boost actif" },
+      "pr_load_warning": { "name": "Alerte de charge Power Reducer" }
     },
     "switch": {
       "relay_state": { "name": "Relais" }
+    },
+    "button": {
+      "boost_start": { "name": "Démarrer le Boost" },
+      "boost_cancel": { "name": "Passer en Auto" },
+      "pr_force_off": { "name": "Arrêt forcé Power Reducer" },
+      "refresh_pr_params": { "name": "Actualiser les paramètres Power Reducer" },
+      "sync_clock": { "name": "Sync Clock" }
+    },
+    "number": {
+      "spf_ldw": { "name": "Puissance de charge Power Reducer" },
+      "spf_spw": { "name": "Seuil de surplus Power Reducer" },
+      "boost_level": { "name": "Niveau du Boost" },
+      "boost_duration": { "name": "Durée du Boost" }
     }
   },
   "issues": {
+    "lovelace_yaml_resource": {
+      "title": "La carte planificateur nécessite une ressource Lovelace manuelle",
+      "description": "Votre tableau de bord Lovelace est en **mode YAML**, donc la carte planificateur Elios4You ne peut pas être enregistrée automatiquement.\n\nAjoutez l'entrée suivante à votre configuration YAML Lovelace :\n\n```yaml\nresources:\n  - url: {resource_url}\n    type: module\n```\n\nAprès l'avoir ajoutée, rechargez votre navigateur pour charger la carte."
+    },
     "connection_failed": {
       "title": "Impossible de se connecter a {device_name}",
       "description": "L'integration ne peut pas se connecter a votre appareil Elios4You sur {host}:{port}.\n\n**Causes possibles:**\n- L'appareil est eteint ou non connecte au reseau\n- L'adresse IP a change\n- Un pare-feu bloque la connexion\n- Le port Telnet n'est pas accessible\n\n**Pour resoudre:**\n1. Verifiez que l'appareil est allume et connecte a votre reseau\n2. Verifiez l'adresse IP dans la table DHCP de votre routeur\n3. Si l'IP a change, reconfigurez l'integration avec la nouvelle adresse"
@@ -118,6 +155,18 @@
     },
     "telnet_command_error": {
       "message": "La commande Telnet {command} n'a pas pu etre executee"
+    },
+    "boost_command_timeout": {
+      "message": "La commande Power Reducer '{action}' n'a pas été confirmée par l'appareil après 3 secondes"
+    },
+    "relay_command_timeout": {
+      "message": "La commande relais n'a pas été confirmée par l'appareil après 5 secondes"
+    },
+    "number_out_of_range": {
+      "message": "La valeur {value} est hors de la plage [{min}, {max}] pour {key}"
+    },
+    "clock_sync_failed": {
+      "message": "Failed to synchronize device clock"
     }
   },
   "device_automation": {

@@ -345,7 +345,7 @@ automation:
     action:
       - service: switch.turn_on
         target:
-          entity_id: switch.elios4you_relay
+          entity_id: switch.elios4you_relay_state
 
   - alias: "Disable Relay on Low Solar"
     trigger:
@@ -356,7 +356,104 @@ automation:
     action:
       - service: switch.turn_off
         target:
-          entity_id: switch.elios4you_relay
+          entity_id: switch.elios4you_relay_state
+```
+
+### Power Reducer Dashboard Cards
+
+If you have the Power Reducer module installed and enabled in the integration options,
+you can use the following YAML card examples to control it from your dashboard.
+
+> **Note:** Replace `elios4you` with your actual device name prefix if you configured a custom name.
+
+#### Power Reducer Control Card
+
+A complete control panel for the Power Reducer module:
+
+```yaml
+type: entities
+title: Power Reducer
+entities:
+  - entity: sensor.elios4you_pr_mode
+    name: Mode
+  - entity: sensor.elios4you_reducer_power
+    name: Current Output
+  - entity: sensor.elios4you_boost_remaining
+    name: Boost Remaining
+  - type: divider
+  - entity: number.elios4you_spf_spw
+    name: Surplus Threshold
+  - entity: number.elios4you_spf_ldw
+    name: Load Power
+  - type: divider
+  - entity: number.elios4you_boost_level
+    name: Boost Level
+  - entity: number.elios4you_boost_duration
+    name: Boost Duration
+  - type: divider
+  - entity: button.elios4you_boost_start
+    name: Start Boost
+  - entity: button.elios4you_boost_cancel
+    name: Cancel Boost (Auto)
+  - entity: button.elios4you_pr_force_off
+    name: Force Off
+  - entity: binary_sensor.elios4you_boost_active
+    name: Boost Active
+  - entity: binary_sensor.elios4you_pr_load_warning
+    name: Load Warning
+```
+
+#### Power Reducer Glance Card
+
+Compact status overview:
+
+```yaml
+type: glance
+title: Power Reducer Status
+entities:
+  - entity: sensor.elios4you_pr_mode
+    name: Mode
+  - entity: sensor.elios4you_reducer_power
+    name: Output
+  - entity: binary_sensor.elios4you_boost_active
+    name: Boost
+  - entity: sensor.elios4you_boost_remaining
+    name: Remaining
+  - entity: binary_sensor.elios4you_pr_load_warning
+    name: Warning
+```
+
+#### Boost Automation Example
+
+Trigger a boost for 30 minutes at full power when solar surplus exceeds 2 kW:
+
+```yaml
+automation:
+  - alias: "Auto Boost on High Solar Surplus"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.elios4you_sold_power
+        above: 2.0
+        for:
+          minutes: 5
+    condition:
+      - condition: state
+        entity_id: sensor.elios4you_pr_mode
+        state: "auto"
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.elios4you_boost_level
+        data:
+          value: 100
+      - service: number.set_value
+        target:
+          entity_id: number.elios4you_boost_duration
+        data:
+          value: 30
+      - service: button.press
+        target:
+          entity_id: button.elios4you_boost_start
 ```
 
 ## Troubleshooting

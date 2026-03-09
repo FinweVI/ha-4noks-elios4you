@@ -261,6 +261,11 @@ ignore = [
     "S101",
     "TRY301",
 ]
+# The package name starts with a digit (4noks_elios4you), making absolute imports
+# syntactically invalid from subpackages that need to reference the parent package.
+"custom_components/4noks_elios4you/frontend/__init__.py" = [
+    "TID252",
+]
 
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 voluptuous = "vol"
