@@ -681,8 +681,8 @@ BINARY_SENSOR_ENTITIES = [
     {
         "name": "Power Reducer Load Warning",
         "key": "pr_load_warning",
-        "icon": "mdi:alarm-light-outline",
-        "device_class": BinarySensorDeviceClass.PROBLEM,
+        "icon": "mdi:flash-alert-outline",
+        "device_class": None,
         "enabled_default": False,
         "entity_category": EntityCategory.DIAGNOSTIC,
     },

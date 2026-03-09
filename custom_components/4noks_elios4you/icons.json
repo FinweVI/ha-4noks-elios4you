@@ -171,9 +171,9 @@
         }
       },
       "pr_load_warning": {
-        "default": "mdi:alarm-light-outline",
+        "default": "mdi:flash-alert-outline",
         "state": {
-          "on": "mdi:alarm-light"
+          "on": "mdi:flash-alert"
         }
       }
     },
