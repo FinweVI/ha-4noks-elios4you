@@ -486,6 +486,7 @@ class Elios4YouAPI:
 
         Note: This method is kept for backwards compatibility with tests.
         The main code now uses _ensure_connected() for connection management.
+        WARNING: This is a BLOCKING synchronous call. Do NOT invoke from an async context.
         """
         sock_timeout = 3.0
         log_debug(
@@ -563,6 +564,13 @@ class Elios4YouAPI:
                 hwver_val = line.split("=", 1)[1].strip()
                 self._parse_hwver(hwver_val)
                 break
+        if len(self.data.get("hwver_raw", "")) != 12:
+            raise TelnetConnectionError(
+                self._host,
+                self._port,
+                self._timeout,
+                f"Handshake failed: HWVER value not 12 hex chars: {self.data.get('hwver_raw')!r}",
+            )
         log_debug(
             _LOGGER,
             "_perform_handshake",
@@ -614,6 +622,10 @@ class Elios4YouAPI:
         duration: seconds. 1=return to AUTO, 65535=permanent OFF, other=timed boost.
         Returns True if the command was accepted by the device.
         """
+        if not (0 <= power <= 10000):
+            raise ValueError(f"power {power} out of range [0, 10000]")
+        if duration < 0:
+            raise ValueError(f"duration {duration} must be non-negative")
         async with self._connection_lock:
             try:
                 await self._ensure_connected()
@@ -644,7 +656,7 @@ class Elios4YouAPI:
             else:
                 return True
 
-    async def async_read_clock(self) -> str | None:
+    async def _async_read_clock(self) -> str | None:
         """Read device clock UTC string.
 
         Internal — must be called while holding the connection lock.
@@ -658,7 +670,7 @@ class Elios4YouAPI:
                 return line.split(":", 1)[1].strip()
         return None
 
-    async def async_set_clock(self) -> bool:
+    async def _async_set_clock(self) -> bool:
         """Write current UTC time to the device clock.
 
         Internal — must be called while holding the connection lock.
@@ -673,7 +685,7 @@ class Elios4YouAPI:
         async with self._connection_lock:
             try:
                 await self._ensure_connected()
-                ok = await self.async_set_clock()
+                ok = await self._async_set_clock()
                 if ok:
                     self.data["clock_drift"] = 0
                 self._last_activity = time.time()
@@ -751,6 +763,8 @@ class Elios4YouAPI:
         Returns a list of 48 human-readable slot strings: 'off', 'auto', or 'boost'.
         Device read values: see _SCHEDULE_READ_MAP (0=OFF, 1=BOOST, 2=AUTO).
         """
+        if not 0 <= day <= 6:
+            raise ValueError(f"day {day} out of range [0, 6]")
         async with self._connection_lock:
             try:
                 await self._ensure_connected()
@@ -804,6 +818,8 @@ class Elios4YouAPI:
         Write mapping: see _SCHEDULE_WRITE_MAP (off=0, auto=2, boost=1).
         Each 8-slot group is reversed before sending (device stores groups right-to-left).
         """
+        if not 0 <= day <= 6:
+            raise ValueError(f"day {day} out of range [0, 6]")
         if len(slots) != 48:
             log_debug(_LOGGER, "async_write_schedule", "Invalid slot count", count=len(slots))
             return False
@@ -876,7 +892,7 @@ class Elios4YouAPI:
                         if ("energy" in key) or ("power" in key):
                             self.data[key] = round(float(value), 2)
                         elif key == "utc_time":
-                            pass
+                            pass  # Redundant; clock is managed via _async_read_clock/@clk
                         else:
                             self.data[key] = int(value)
                     except ValueError:
@@ -924,29 +940,31 @@ class Elios4YouAPI:
                 if boost_active == 0:
                     # AUTO: no boost active — reset stale values (device omits them)
                     self.data["boost_remaining"] = 0
-                    self.data["boost_power"] = 0
+                    self.data["boost_power"] = 0.0
                     self.data["boost_delay"] = 0
                     self.data["pr_mode"] = "auto"
                 elif boost_delay_raw == -1:
                     # FORCE OFF: permanent, device reports delay/remaining as -1
                     self.data["boost_remaining"] = 0
+                    self.data["boost_power"] = 0.0
                     self.data["boost_delay"] = 0
                     self.data["pr_mode"] = "force_off"
                 else:
-                    # BOOST: timed — convert seconds to minutes for display
+                    # BOOST: timed — convert seconds to minutes and bp to % for display
                     self.data["boost_remaining"] = max(
                         0, int(self.data.get("boost_remaining", 0)) // 60
                     )
                     self.data["boost_delay"] = max(0, int(self.data.get("boost_delay", 0)) // 60)
+                    self.data["boost_power"] = round(
+                        float(self.data.get("boost_power", 0)) / 100.0, 2
+                    )
                     self.data["pr_mode"] = "boost"
 
-                # Convert Power Reducer output and boost power from device basis points
+                # Convert Power Reducer output from device basis points
                 # (0-10000, 10000=100%) to percentage (0.0-100.0) for display.
-                # Note: boost_power is reset to 0 in the AUTO block above, so /100 keeps it 0.
                 self.data["reducer_power"] = round(
                     float(self.data.get("reducer_power", 0)) / 100.0, 2
                 )
-                self.data["boost_power"] = round(float(self.data.get("boost_power", 0)) / 100.0, 2)
 
                 # Fetch PAR parameters once per session (reset via reset_par_cache /
                 # Refresh Parameters button, or automatically retried if fetch fails).
@@ -972,7 +990,7 @@ class Elios4YouAPI:
                         log_debug(_LOGGER, "async_get_data", "PAR fetch incomplete, will retry")
 
                 # Clock management: read device clock, compute drift, auto-sync if needed
-                utc_str = await self.async_read_clock()
+                utc_str = await self._async_read_clock()
                 if utc_str:
                     self.data["device_clock_utc"] = utc_str
                     try:
@@ -988,7 +1006,7 @@ class Elios4YouAPI:
                                 "Clock drift exceeds threshold, syncing",
                                 drift=drift,
                             )
-                            await self.async_set_clock()
+                            await self._async_set_clock()
                             self.data["clock_drift"] = 0
                     except ValueError:
                         log_debug(

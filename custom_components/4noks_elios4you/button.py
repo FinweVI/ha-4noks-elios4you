@@ -87,7 +87,6 @@ class Elios4YouButton(CoordinatorEntity[Elios4YouCoordinator], ButtonEntity):
             await asyncio.sleep(1.0)
             # Read device data directly to bypass coordinator throttling
             await self.coordinator.api.async_get_data()
-            self.async_write_ha_state()
             actual = int(self.coordinator.api.data.get("boost_active", -1))
             log_debug(
                 _LOGGER,
@@ -100,7 +99,8 @@ class Elios4YouButton(CoordinatorEntity[Elios4YouCoordinator], ButtonEntity):
             if actual == expected_active:
                 # Notify all coordinator entities so UI reflects the new state immediately
                 # rather than waiting for the next polling cycle.
-                self.coordinator.async_set_updated_data(self.coordinator.data)
+                # Pass api.data (just updated) rather than coordinator.data (old snapshot).
+                self.coordinator.async_set_updated_data(self.coordinator.api.data)
                 return
         actual = self.coordinator.api.data.get("boost_active")
         log_warning(

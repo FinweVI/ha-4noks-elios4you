@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -25,7 +25,7 @@ async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: Elios4YouConfigEntry,
     async_add_entities: AddEntitiesCallback,
-) -> bool:
+) -> None:
     """Switch Platform setup."""
 
     # This gets the data update coordinator from hass.data as specified in your __init__.py
@@ -45,8 +45,6 @@ async def async_setup_entry(
     ]
 
     async_add_entities(switches)
-
-    return True
 
 
 class Elios4YouSwitch(CoordinatorEntity[Elios4YouCoordinator], SwitchEntity):
@@ -111,13 +109,6 @@ class Elios4YouSwitch(CoordinatorEntity[Elios4YouCoordinator], SwitchEntity):
     def device_class(self) -> SwitchDeviceClass:
         """Return the switch device_class."""
         return self._device_class  # type: ignore[return-value]
-
-    @property
-    def entity_category(self) -> EntityCategory | None:
-        """Return the switch entity_category."""
-        if self._device_class is SwitchDeviceClass.SWITCH:
-            return EntityCategory.CONFIG
-        return None
 
     @property
     def unique_id(self) -> str:

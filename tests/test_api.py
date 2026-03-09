@@ -1276,7 +1276,7 @@ class TestClockManagement:
 
     @pytest.mark.asyncio
     async def test_async_read_clock_parses_utc_line(self, mock_hass) -> None:
-        """Verify async_read_clock returns the UTC time string."""
+        """Verify _async_read_clock returns the UTC time string."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
         mock_writer = MagicMock()
         mock_writer.write = MagicMock()
@@ -1284,13 +1284,13 @@ class TestClockManagement:
         api._writer = mock_writer
         api._async_read_until = AsyncMock(return_value="@clk\nUTC: 01.01.2026 12:00:00\nready...")
 
-        result = await api.async_read_clock()
+        result = await api._async_read_clock()
 
         assert result == "01.01.2026 12:00:00"
 
     @pytest.mark.asyncio
     async def test_async_read_clock_no_utc_line_returns_none(self, mock_hass) -> None:
-        """Verify async_read_clock returns None when UTC line missing."""
+        """Verify _async_read_clock returns None when UTC line missing."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
         mock_writer = MagicMock()
         mock_writer.write = MagicMock()
@@ -1298,13 +1298,13 @@ class TestClockManagement:
         api._writer = mock_writer
         api._async_read_until = AsyncMock(return_value="@clk\nSOME=value\nready...")
 
-        result = await api.async_read_clock()
+        result = await api._async_read_clock()
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_auto_sync_triggers_when_drift_exceeds_threshold(self, mock_hass) -> None:
-        """Verify async_set_clock called when drift > CLOCK_DRIFT_THRESHOLD."""
+        """Verify _async_set_clock called when drift > CLOCK_DRIFT_THRESHOLD."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
         # Set up a connected writer so _async_send_raw can be called
         api._ensure_connected = AsyncMock()
@@ -1334,8 +1334,8 @@ class TestClockManagement:
         async def fake_read_clock() -> str | None:
             return utc_str
 
-        api.async_read_clock = fake_read_clock
-        api.async_set_clock = fake_set_clock
+        api._async_read_clock = fake_read_clock
+        api._async_set_clock = fake_set_clock
 
         # Patch _require_data to return minimal valid dicts for all 3 calls
         dat_data = {
@@ -1409,7 +1409,7 @@ class TestClockManagement:
 
     @pytest.mark.asyncio
     async def test_no_sync_when_drift_under_threshold(self, mock_hass) -> None:
-        """Verify async_set_clock NOT called when drift <= CLOCK_DRIFT_THRESHOLD."""
+        """Verify _async_set_clock NOT called when drift <= CLOCK_DRIFT_THRESHOLD."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
         api._ensure_connected = AsyncMock()
         api._safe_close = AsyncMock()
@@ -1427,8 +1427,8 @@ class TestClockManagement:
         async def fake_read_clock() -> str | None:
             return utc_str
 
-        api.async_read_clock = fake_read_clock
-        api.async_set_clock = fake_set_clock
+        api._async_read_clock = fake_read_clock
+        api._async_set_clock = fake_set_clock
 
         dat_data = {
             "produced_power": "1.0",
@@ -1501,7 +1501,7 @@ class TestClockManagement:
 
     @pytest.mark.asyncio
     async def test_async_sync_clock_public_acquires_lock(self, mock_hass) -> None:
-        """Verify async_sync_clock acquires lock, calls set_clock, resets drift."""
+        """Verify async_sync_clock acquires lock, calls _async_set_clock, resets drift."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
         api._ensure_connected = AsyncMock()
         api.data["clock_drift"] = 999
@@ -1512,7 +1512,7 @@ class TestClockManagement:
             set_clock_called.append(True)
             return True
 
-        api.async_set_clock = fake_set_clock
+        api._async_set_clock = fake_set_clock
 
         result = await api.async_sync_clock()
 

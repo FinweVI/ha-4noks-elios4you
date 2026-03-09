@@ -113,7 +113,6 @@ class Elios4YouSensor(CoordinatorEntity[Elios4YouCoordinator], SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Fetch new state data for the sensor."""
-        self._state = self.coordinator.api.data[self._key]
         self.async_write_ha_state()
         # write debug log only on first sensor to avoid spamming the log
         if self._key == "rcap":
