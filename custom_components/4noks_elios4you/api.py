@@ -5,9 +5,11 @@ https://github.com/alexdelprete/ha-4noks-elios4you
 
 import asyncio
 from contextlib import suppress
+from datetime import UTC, datetime
 import logging
 import socket
 import time
+from typing import ClassVar
 
 import telnetlib3
 
@@ -15,14 +17,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    CLOCK_DRIFT_THRESHOLD,
     COMMAND_RETRY_COUNT,
     COMMAND_RETRY_DELAY,
     CONN_TIMEOUT,
+    DEFAULT_BOOST_DURATION,
+    DEFAULT_BOOST_LEVEL,
     DOMAIN,
     MANUFACTURER,
     MODEL,
 )
-from .helpers import log_debug
+from .helpers import log_debug, log_warning
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,6 +146,31 @@ class Elios4YouAPI:
         # custom fields to reuse code structure
         self.data["manufact"] = MANUFACTURER
         self.data["model"] = MODEL
+        # Power Reducer data keys (populated from @dat)
+        self.data["reducer_power"] = 0  # 0-10000 (basis points, 10000=100%)
+        self.data["boost_active"] = 0  # 0 or 1
+        self.data["boost_power"] = 0  # 0-10000
+        self.data["boost_delay"] = 0  # seconds (total boost duration configured)
+        self.data["boost_remaining"] = 0  # seconds remaining (0 when inactive)
+        self.data["pr_load_warning"] = 0  # 0 or 1
+        self.data["pr_mode"] = "auto"  # computed: "auto" or "boost"
+        # PAR parameters (populated once per session, reset via reset_par_cache)
+        self.data["spf_ldw"] = 0  # Power Reducer load power (watts)
+        self.data["spf_spw"] = 0  # Power Reducer surplus threshold (watts)
+        # Local-only: boost parameters (not written to device)
+        self.data["boost_duration"] = DEFAULT_BOOST_DURATION
+        self.data["boost_level"] = DEFAULT_BOOST_LEVEL  # percent (10-100)
+        # PAR caching: fetch once per connection session
+        self._par_fetched: bool = False
+        # Hardware version parsed fields (populated on first connect via handshake)
+        self.data["hwver_raw"] = ""  # 12-char hex from @hwr
+        self.data["has_rs485"] = 0  # bool: RS485 interface present
+        self.data["has_pr_hw"] = 0  # bool: PowerReducer-compatible hardware
+        self.data["vendor_id"] = ""  # 2-char hex (vendor ID byte)
+        self.data["mc_type"] = ""  # 2-char hex (MC type byte)
+        # Clock management
+        self.data["device_clock_utc"] = ""  # "DD.MM.YYYY HH:MM:SS" string
+        self.data["clock_drift"] = 0  # seconds, positive = device ahead
 
     @property
     def name(self) -> str:
@@ -254,6 +284,11 @@ class Elios4YouAPI:
                 ),
                 timeout=self._timeout,
             )
+            try:
+                await self._perform_handshake()
+            except TelnetConnectionError:
+                await self._safe_close()
+                raise
             self._last_activity = time.time()
             log_debug(_LOGGER, "_ensure_connected", "Connection established")
         except (TimeoutError, OSError) as err:
@@ -288,7 +323,7 @@ class Elios4YouAPI:
             or partial data if timeout/EOF occurs.
         """
         buffer = ""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         end_time = loop.time() + timeout
 
         while separator not in buffer:
@@ -303,7 +338,8 @@ class Elios4YouAPI:
                 return buffer  # Timeout - return partial
 
             try:
-                assert self._reader is not None  # Ensured by caller
+                if self._reader is None:
+                    return buffer
                 chunk = await asyncio.wait_for(
                     self._reader.read(1024),
                     timeout=remaining,
@@ -329,11 +365,10 @@ class Elios4YouAPI:
         return buffer
 
     async def _async_send_command(self, cmd: str) -> dict | None:
-        """Send command and read response asynchronously.
+        """Send structured command and return parsed key-value dict.
 
-        This replaces the synchronous telnet_get_data() method.
-
-        Note: telnetlib3 works with strings (not bytes) - it handles encoding internally.
+        Delegates the low-level send+read to _async_send_raw, then parses
+        the structured response for @dat, @sta, @inf, @rel, @hwr commands.
 
         Args:
             cmd: Command to send (e.g., "@dat", "@sta", "@inf", "@rel")
@@ -341,78 +376,54 @@ class Elios4YouAPI:
         Returns:
             Parsed response dict or None if failed
         """
-        try:
-            cmd_main = cmd[0:4].lower()
-            separator = "ready..."
+        cmd_main = cmd[0:4].lower()
+        log_debug(_LOGGER, "_async_send_command", "Sending command", cmd=cmd)
 
-            log_debug(_LOGGER, "_async_send_command", "Sending command", cmd=cmd)
+        # Delegate low-level send+read to _async_send_raw (all-lowercase for structured cmds)
+        raw = await self._async_send_raw(cmd.lower())
+        if raw is None:
+            log_debug(_LOGGER, "_async_send_command", "Silent timeout or connection error")
+            return None
 
-            # Send command with newline (telnetlib3 expects strings, not bytes)
-            assert self._writer is not None  # Ensured by caller via _ensure_connected
-            self._writer.write(cmd.lower() + "\n")
-            await self._writer.drain()
+        # Parse structured response (raw is already stripped of "ready...")
+        output: dict[str, str] = {}
+        lines = raw.splitlines()
 
-            # Read until separator
-            log_debug(_LOGGER, "_async_send_command", "Waiting for response")
-            response = await self._async_read_until(separator, self._timeout)
+        # Find where data lines start: skip the command echo if present
+        lines_start = 0
+        for i, line in enumerate(lines):
+            if line.strip().lower() in ("@dat", "@sta", "@inf", "@rel", "@hwr"):
+                lines_start = i + 1
+                break
 
-            log_debug(
-                _LOGGER,
-                "_async_send_command",
-                "Response received",
-                response_len=len(response),
-            )
-
-            # Check for silent timeout - incomplete response without separator
-            if not response or "ready..." not in response:
+        for line in lines[lines_start:]:
+            line = line.strip()
+            if not line:
+                continue  # blank lines are expected between sections
+            try:
+                if cmd_main in ("@inf", "@rel", "@hwr"):
+                    key, value = line.split("=", 1)
+                else:
+                    key, value = line.split(";")[1:3]
+                output[key.lower().replace(" ", "_")] = value.strip()
+            except (ValueError, IndexError):
+                # Non-empty line that doesn't match expected format → response is corrupt.
+                # Return None so the coordinator keeps existing values and retries next cycle.
                 log_debug(
                     _LOGGER,
                     "_async_send_command",
-                    "Silent timeout - incomplete response",
-                    has_response=bool(response),
-                    has_separator="ready..." in response if response else False,
+                    "Malformed response line, discarding entire response",
+                    line=line,
                 )
                 return None
 
-            # Valid response - process data
-            output = {}
-            lines = response.splitlines()
-
-            # Sometimes the first line is not the command but a line-feed
-            if lines[0].lower() in ["@dat", "@sta", "@inf", "@rel", "@hwr"]:
-                lines_start = 1
-            else:
-                # Skip the possible LF in first line
-                lines_start = 2
-
-            # Skip last two lines (line-feed and read_until separator)
-            lines_end = -2
-
-            # Parse key-value pairs
-            for line in lines[lines_start:lines_end]:
-                if cmd_main in ["@inf", "@rel", "@hwr"]:
-                    # @inf data uses a different separator
-                    key, value = line.split("=")
-                else:
-                    # @dat and @sta share the same data format
-                    key, value = line.split(";")[1:3]
-                # Lower case and replace space with underscore
-                output[key.lower().replace(" ", "_")] = value.strip()
-
-            log_debug(
-                _LOGGER,
-                "_async_send_command",
-                "Success",
-                output_keys=list(output.keys()),
-            )
-        except TimeoutError:
-            log_debug(_LOGGER, "_async_send_command", "Operation timed out")
-            return None
-        except (ValueError, IndexError, AttributeError) as ex:
-            log_debug(_LOGGER, "_async_send_command", "Failed to parse response", error=ex)
-            return None
-        else:
-            return output
+        log_debug(
+            _LOGGER,
+            "_async_send_command",
+            "Success",
+            output_keys=list(output.keys()),
+        )
+        return output
 
     async def _require_data(self, cmd: str) -> dict:
         """Get data with retry, raising TelnetCommandError if it fails.
@@ -515,6 +526,326 @@ class Elios4YouAPI:
         finally:
             sock.close()
 
+    def _parse_hwver(self, hwver: str) -> None:
+        """Decode 12-char HWVER hex string and populate data fields.
+
+        HWVER format (each pair = 1 byte, hex):
+          [0:2]  mc_type    "00"=128K MC, "01"=256K/RedCap MC
+          [6:8]  rs485_byte bit0 = RS485 interface present
+          [8:10] vendor_id  "0C"=Reverberi EDI
+          [11]   pr_hw bit  "1"=PowerReducer-compatible hardware
+        """
+        if len(hwver) < 12:
+            return
+        self.data["hwver_raw"] = hwver
+        self.data["mc_type"] = hwver[0:2]
+        rs485_byte = int(hwver[6:8], 16)
+        self.data["has_rs485"] = rs485_byte & 1
+        self.data["vendor_id"] = hwver[8:10]
+        self.data["has_pr_hw"] = 1 if hwver[11] == "1" else 0
+
+    async def _perform_handshake(self) -> None:
+        """Send @hwr and validate HWVER= in response to confirm device identity.
+
+        Raises:
+            TelnetConnectionError: If response does not contain HWVER=.
+        """
+        raw = await self._async_send_raw("@hwr")
+        if raw is None or "HWVER=" not in raw.upper():
+            raise TelnetConnectionError(
+                self._host,
+                self._port,
+                self._timeout,
+                "Handshake failed: no HWVER in response",
+            )
+        for line in raw.splitlines():
+            if line.upper().startswith("HWVER="):
+                hwver_val = line.split("=", 1)[1].strip()
+                self._parse_hwver(hwver_val)
+                break
+        log_debug(
+            _LOGGER,
+            "_perform_handshake",
+            "Handshake OK",
+            hwver_raw=self.data["hwver_raw"],
+        )
+
+    # PAR parameters accepted by the device — used as an allowlist in read/write methods
+    _ALLOWED_PAR_PARAMS: frozenset[str] = frozenset({"SPF_LDW", "SPF_SPW"})
+
+    # @PRS slot value encoding (confirmed from 4noks app telnet captures):
+    #   0 = OFF (forced stop)   1 = BOOST (forced heat)   2 = AUTO (solar tracking)
+    # _SLOT_MODES is the canonical read map; the write map is its inverse.
+    _SLOT_MODES: ClassVar[dict[str, str]] = {"0": "off", "1": "boost", "2": "auto"}
+    _SLOT_WRITE: ClassVar[dict[str, str]] = {mode: code for code, mode in _SLOT_MODES.items()}
+
+    async def _async_send_raw(self, cmd: str) -> str | None:
+        """Send command and return raw response text (before 'ready...').
+
+        Does NOT acquire the connection lock — callers must hold it already,
+        or call this from within an already-locked context.
+        """
+        # Defence-in-depth: reject embedded newlines before they reach the device
+        if "\n" in cmd or "\r" in cmd:
+            log_debug(_LOGGER, "_async_send_raw", "Rejected command containing newline", cmd=cmd)
+            return None
+        if self._writer is None:
+            log_debug(_LOGGER, "_async_send_raw", "Not connected, cannot send command")
+            return None
+        try:
+            # Pass command through unchanged — callers are responsible for correct case.
+            # Read commands use lowercase (@dat, @sta, @inf, @rel, @hwr).
+            # Write commands use uppercase (@REL, @BOO, @PAR, @PRS, @CLK).
+            to_send = cmd + "\n"
+            self._writer.write(to_send)
+            await self._writer.drain()
+            response = await self._async_read_until("ready...", self._timeout)
+            if not response or "ready..." not in response:
+                return None
+            return response.split("ready...")[0].strip()
+        except (TimeoutError, OSError, AttributeError) as err:
+            log_debug(_LOGGER, "_async_send_raw", "Command failed", cmd=cmd, error=err)
+            return None
+
+    async def async_send_boost(self, power: int, duration: int) -> bool:
+        """Send @BOO command to control Power Reducer boost mode.
+
+        power:    0-10000 (10000=100%).
+        duration: seconds. 1=return to AUTO, 65535=permanent OFF, other=timed boost.
+        Returns True if the command was accepted by the device.
+        """
+        async with self._connection_lock:
+            try:
+                await self._ensure_connected()
+                cmd = f"@BOO {power} {duration}"
+                log_debug(
+                    _LOGGER,
+                    "async_send_boost",
+                    "Sending boost command",
+                    power=power,
+                    duration=duration,
+                )
+                raw = await self._async_send_raw(cmd)
+                if raw is None:
+                    await self._safe_close()
+                    return False
+                self._last_activity = time.time()
+                log_debug(
+                    _LOGGER,
+                    "async_send_boost",
+                    "Boost command sent",
+                    power=power,
+                    duration=duration,
+                )
+            except (TelnetConnectionError, OSError, TimeoutError) as err:
+                await self._safe_close()
+                log_debug(_LOGGER, "async_send_boost", "Boost command failed", error=err)
+                return False
+            else:
+                return True
+
+    async def async_read_clock(self) -> str | None:
+        """Read device clock UTC string.
+
+        Internal — must be called while holding the connection lock.
+        Returns "DD.MM.YYYY HH:MM:SS" string, or None if unavailable.
+        """
+        raw = await self._async_send_raw("@clk")
+        if raw is None:
+            return None
+        for line in raw.splitlines():
+            if line.upper().startswith("UTC:"):
+                return line.split(":", 1)[1].strip()
+        return None
+
+    async def async_set_clock(self) -> bool:
+        """Write current UTC time to the device clock.
+
+        Internal — must be called while holding the connection lock.
+        Returns True if the command was accepted.
+        """
+        now_utc = datetime.now(UTC).strftime("%d.%m.%Y %H:%M:%S")
+        raw = await self._async_send_raw(f"@CLK {now_utc}")
+        return raw is not None
+
+    async def async_sync_clock(self) -> bool:
+        """Public: acquire lock, sync device clock, return True on success."""
+        async with self._connection_lock:
+            try:
+                await self._ensure_connected()
+                ok = await self.async_set_clock()
+                if ok:
+                    self.data["clock_drift"] = 0
+                self._last_activity = time.time()
+            except (TelnetConnectionError, OSError, TimeoutError) as err:
+                await self._safe_close()
+                log_debug(_LOGGER, "async_sync_clock", "Clock sync failed", error=err)
+                return False
+            else:
+                return ok
+
+    async def async_read_par(self, param: str) -> int | None:
+        """Read a PAR parameter value from the device.
+
+        Returns the integer value, or None if the read fails.
+        Raises ValueError for unknown or invalid parameter names.
+        """
+        if param.upper() not in self._ALLOWED_PAR_PARAMS:
+            raise ValueError(f"Unknown PAR parameter: {param!r}")
+        async with self._connection_lock:
+            try:
+                await self._ensure_connected()
+                raw = await self._async_send_raw(f"@PAR {param}")
+                if raw is None:
+                    return None
+                # Response: "@PAR\nPAR SPF_LDW 1850 W" — find the data line
+                for line in raw.splitlines():
+                    parts = line.strip().split()
+                    if len(parts) >= 4 and parts[0].upper() == "PAR":
+                        try:
+                            result = int(parts[2])
+                            self._last_activity = time.time()
+                        except ValueError:
+                            return None
+                        else:
+                            return result
+            except (TelnetConnectionError, OSError, TimeoutError, ValueError) as err:
+                await self._safe_close()
+                log_debug(_LOGGER, "async_read_par", "Read PAR failed", param=param, error=err)
+                return None
+        return None  # No matching PAR line found
+
+    async def async_write_par(self, param: str, value: int) -> bool:
+        """Write a PAR parameter value to the device.
+
+        Returns True if successful.
+        Raises ValueError for unknown or invalid parameter names.
+        """
+        if param.upper() not in self._ALLOWED_PAR_PARAMS:
+            raise ValueError(f"Unknown PAR parameter: {param!r}")
+        async with self._connection_lock:
+            try:
+                await self._ensure_connected()
+                raw = await self._async_send_raw(f"@PAR {param} {value}")
+                if raw is None:
+                    await self._safe_close()
+                    return False
+                # Non-None raw means the device responded with "ready..." — accepted.
+                # Update local cache; the param key is lowercase (e.g. "spf_ldw").
+                self.data[param.lower()] = value
+                self._last_activity = time.time()
+                log_debug(_LOGGER, "async_write_par", "PAR written", param=param, value=value)
+            except (TelnetConnectionError, OSError, TimeoutError) as err:
+                await self._safe_close()
+                log_debug(_LOGGER, "async_write_par", "Write PAR failed", param=param, error=err)
+                return False
+            else:
+                return True
+
+    async def async_read_schedule(self, day: int) -> list[str] | None:
+        """Read the Power Reducer schedule for a day.
+
+        Device convention: 0=Sunday, 1=Monday, ..., 6=Saturday (US week order).
+        Confirmed by telnet test: writing to day 0 → appears as Sunday in the app.
+
+        Returns a list of 48 human-readable slot strings: 'off', 'auto', or 'boost'.
+        Device read values: see _SCHEDULE_READ_MAP (0=OFF, 1=BOOST, 2=AUTO).
+        """
+        async with self._connection_lock:
+            try:
+                await self._ensure_connected()
+                raw = await self._async_send_raw(f"@PRS 0 {day}")
+                if raw is None:
+                    return None
+                # Response: "@PRS <day>;<slot0>;...;<slot47>;" — strip command echo prefix
+                stripped = raw
+                if stripped.upper().startswith("@PRS"):
+                    stripped = stripped[4:].strip()
+                parts = stripped.split(";")
+                # parts[0] = day index echo, parts[1..48] = slot values, trailing empty
+                values = [v.strip() for v in parts[1:] if v.strip()]
+                if len(values) != 48:
+                    log_debug(
+                        _LOGGER,
+                        "async_read_schedule",
+                        "Unexpected slot count",
+                        expected=48,
+                        got=len(values),
+                    )
+                    return None
+                self._last_activity = time.time()
+                result: list[str] = []
+                for v in values:
+                    mode = self._SLOT_MODES.get(v)
+                    if mode is None:
+                        log_warning(
+                            _LOGGER,
+                            "async_read_schedule",
+                            "Unknown slot value from device, defaulting to auto",
+                            value=v,
+                        )
+                        mode = "auto"
+                    result.append(mode)
+            except (TelnetConnectionError, OSError, TimeoutError) as err:
+                await self._safe_close()
+                log_debug(
+                    _LOGGER, "async_read_schedule", "Read schedule failed", day=day, error=err
+                )
+                return None
+            else:
+                return result
+
+    async def async_write_schedule(self, day: int, slots: list[str]) -> bool:
+        """Write the Power Reducer schedule for a day.
+
+        Device convention: 0=Sunday, 1=Monday, ..., 6=Saturday (US week order).
+
+        slots: list of exactly 48 strings, each 'off', 'auto', or 'boost'.
+        Write mapping: see _SCHEDULE_WRITE_MAP (off=0, auto=2, boost=1).
+        Each 8-slot group is reversed before sending (device stores groups right-to-left).
+        """
+        if len(slots) != 48:
+            log_debug(_LOGGER, "async_write_schedule", "Invalid slot count", count=len(slots))
+            return False
+        invalid = [s for s in slots if s.lower() not in self._SLOT_WRITE]
+        if invalid:
+            log_debug(
+                _LOGGER,
+                "async_write_schedule",
+                "Invalid slot values rejected",
+                invalid=invalid[:5],
+            )
+            return False
+        chars = [self._SLOT_WRITE[s.lower()] for s in slots]
+        # Format as 6 groups of 8 characters, space-separated.
+        # The device stores each group in reverse order (right-to-left), so each
+        # group must be reversed before sending to get the correct slot mapping.
+        # Confirmed by test: writing "11112222" reads back as "2222;1111".
+        groups = ["".join(chars[i : i + 8][::-1]) for i in range(0, 48, 8)]
+        data_str = " ".join(groups)
+        async with self._connection_lock:
+            try:
+                await self._ensure_connected()
+                raw = await self._async_send_raw(f"@PRS 1 {day} {data_str}")
+                if raw is None:
+                    await self._safe_close()
+                    return False
+                self._last_activity = time.time()
+                log_debug(_LOGGER, "async_write_schedule", "Schedule written", day=day)
+            except (TelnetConnectionError, OSError, TimeoutError) as err:
+                await self._safe_close()
+                log_debug(
+                    _LOGGER, "async_write_schedule", "Write schedule failed", day=day, error=err
+                )
+                return False
+            else:
+                return True
+
+    def reset_par_cache(self) -> None:
+        """Reset PAR fetch cache to force re-read from device on next poll."""
+        self._par_fetched = False
+        log_debug(_LOGGER, "reset_par_cache", "PAR cache reset")
+
     async def async_get_data(self) -> bool:
         """Read Data Function.
 
@@ -583,6 +914,89 @@ class Elios4YouAPI:
 
                 # Calculated sensor to combine TOP/BOTTOM fw versions
                 self.data["swver"] = f"{self.data['fwtop']} / {self.data['fwbtm']}"
+
+                # Post-process boost fields and compute pr_mode.
+                # Device reports boost_delay/boost_remaining as -1 when force_off
+                # (@BOO 0 65535 — the unsigned 65535 wraps to -1 as a signed value).
+                boost_active = int(self.data.get("boost_active", 0))
+                boost_delay_raw = int(self.data.get("boost_delay", 0))
+
+                if boost_active == 0:
+                    # AUTO: no boost active — reset stale values (device omits them)
+                    self.data["boost_remaining"] = 0
+                    self.data["boost_power"] = 0
+                    self.data["boost_delay"] = 0
+                    self.data["pr_mode"] = "auto"
+                elif boost_delay_raw == -1:
+                    # FORCE OFF: permanent, device reports delay/remaining as -1
+                    self.data["boost_remaining"] = 0
+                    self.data["boost_delay"] = 0
+                    self.data["pr_mode"] = "force_off"
+                else:
+                    # BOOST: timed — convert seconds to minutes for display
+                    self.data["boost_remaining"] = max(
+                        0, int(self.data.get("boost_remaining", 0)) // 60
+                    )
+                    self.data["boost_delay"] = max(0, int(self.data.get("boost_delay", 0)) // 60)
+                    self.data["pr_mode"] = "boost"
+
+                # Convert Power Reducer output and boost power from device basis points
+                # (0-10000, 10000=100%) to percentage (0.0-100.0) for display.
+                # Note: boost_power is reset to 0 in the AUTO block above, so /100 keeps it 0.
+                self.data["reducer_power"] = round(
+                    float(self.data.get("reducer_power", 0)) / 100.0, 2
+                )
+                self.data["boost_power"] = round(float(self.data.get("boost_power", 0)) / 100.0, 2)
+
+                # Fetch PAR parameters once per session (reset via reset_par_cache /
+                # Refresh Parameters button, or automatically retried if fetch fails).
+                if not self._par_fetched:
+                    log_debug(_LOGGER, "async_get_data", "Fetching PAR parameters")
+                    par_ok = True
+                    for param, key in (("SPF_LDW", "spf_ldw"), ("SPF_SPW", "spf_spw")):
+                        raw_par = await self._async_send_raw(f"@PAR {param}")
+                        if raw_par:
+                            # Response: "@PAR\nPAR SPF_LDW 1850 W" — find the data line
+                            for line in raw_par.splitlines():
+                                parts = line.strip().split()
+                                if len(parts) >= 4 and parts[0].upper() == "PAR":
+                                    with suppress(ValueError):
+                                        self.data[key] = int(parts[2])
+                                    break
+                        else:
+                            par_ok = False
+                    # Only mark fetched if all reads succeeded — retry on next cycle if not
+                    if par_ok:
+                        self._par_fetched = True
+                    else:
+                        log_debug(_LOGGER, "async_get_data", "PAR fetch incomplete, will retry")
+
+                # Clock management: read device clock, compute drift, auto-sync if needed
+                utc_str = await self.async_read_clock()
+                if utc_str:
+                    self.data["device_clock_utc"] = utc_str
+                    try:
+                        device_dt = datetime.strptime(utc_str, "%d.%m.%Y %H:%M:%S").replace(
+                            tzinfo=UTC
+                        )
+                        drift = int((device_dt - datetime.now(UTC)).total_seconds())
+                        self.data["clock_drift"] = drift
+                        if abs(drift) > CLOCK_DRIFT_THRESHOLD:
+                            log_debug(
+                                _LOGGER,
+                                "async_get_data",
+                                "Clock drift exceeds threshold, syncing",
+                                drift=drift,
+                            )
+                            await self.async_set_clock()
+                            self.data["clock_drift"] = 0
+                    except ValueError:
+                        log_debug(
+                            _LOGGER,
+                            "async_get_data",
+                            "Could not parse device clock",
+                            utc_str=utc_str,
+                        )
 
                 # Calculated sensors for self-consumption sensors
                 self.data["self_consumed_power"] = round(
@@ -676,9 +1090,24 @@ class Elios4YouAPI:
                     to_state=to_state,
                 )
 
-                # Send set relay command with retry
-                set_result = await self._get_data_with_retry(f"@rel 0 {to_state}")
-                if set_result is None:
+                # Send set relay command with retry (uppercase @REL per protocol spec)
+                raw_set: str | None = None
+                for attempt in range(COMMAND_RETRY_COUNT + 1):
+                    raw_set = await self._async_send_raw(f"@REL 0 {to_state}")
+                    if raw_set is not None:
+                        break
+                    if attempt < COMMAND_RETRY_COUNT:
+                        log_debug(
+                            _LOGGER,
+                            "telnet_set_relay",
+                            "Set relay command failed, retrying",
+                            attempt=attempt + 1,
+                            max_retries=COMMAND_RETRY_COUNT,
+                        )
+                        await asyncio.sleep(COMMAND_RETRY_DELAY)
+                        await self._safe_close()
+                        await self._ensure_connected()
+                if raw_set is None:
                     log_debug(
                         _LOGGER,
                         "telnet_set_relay",
@@ -704,7 +1133,7 @@ class Elios4YouAPI:
                         _LOGGER,
                         "telnet_set_relay",
                         "Sent telnet command",
-                        command=f"@rel 0 {to_state}",
+                        command=f"@REL 0 {to_state}",
                         rel=out_mode,
                     )
                     if out_mode == to_state:

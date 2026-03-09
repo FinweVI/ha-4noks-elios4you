@@ -135,6 +135,46 @@
       },
       "s2w_wlan_version": {
         "default": "mdi:wifi-cog"
+      },
+      "reducer_power": {
+        "default": "mdi:gauge"
+      },
+      "boost_remaining": {
+        "default": "mdi:timer-outline"
+      },
+      "boost_power": {
+        "default": "mdi:flash-outline"
+      },
+      "boost_delay": {
+        "default": "mdi:timer-cog-outline"
+      },
+      "pr_mode": {
+        "default": "mdi:state-machine",
+        "state": {
+          "auto": "mdi:autorenew",
+          "boost": "mdi:rocket-launch",
+          "force_off": "mdi:power-plug-off"
+        }
+      },
+      "device_clock_utc": {
+        "default": "mdi:clock-outline"
+      },
+      "clock_drift": {
+        "default": "mdi:clock-alert-outline"
+      }
+    },
+    "binary_sensor": {
+      "boost_active": {
+        "default": "mdi:flash-off",
+        "state": {
+          "on": "mdi:flash"
+        }
+      },
+      "pr_load_warning": {
+        "default": "mdi:alarm-light-outline",
+        "state": {
+          "on": "mdi:alarm-light"
+        }
       }
     },
     "switch": {
@@ -143,6 +183,37 @@
         "state": {
           "on": "mdi:toggle-switch-outline"
         }
+      }
+    },
+    "button": {
+      "boost_start": {
+        "default": "mdi:rocket-launch"
+      },
+      "boost_cancel": {
+        "default": "mdi:autorenew"
+      },
+      "pr_force_off": {
+        "default": "mdi:power-plug-off"
+      },
+      "refresh_pr_params": {
+        "default": "mdi:refresh"
+      },
+      "sync_clock": {
+        "default": "mdi:clock-check-outline"
+      }
+    },
+    "number": {
+      "spf_ldw": {
+        "default": "mdi:lightning-bolt"
+      },
+      "spf_spw": {
+        "default": "mdi:lightning-bolt-outline"
+      },
+      "boost_duration": {
+        "default": "mdi:timer-outline"
+      },
+      "boost_level": {
+        "default": "mdi:flash-outline"
       }
     }
   }

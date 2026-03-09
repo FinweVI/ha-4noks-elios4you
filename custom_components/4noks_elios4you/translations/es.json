@@ -3,12 +3,13 @@
     "step": {
       "user": {
         "title": "Configuracion de Conexion Elios4You",
-        "description": "Si necesita ayuda con la configuracion, visite: https://github.com/alexdelprete/ha-4noks-elios4you",
+        "description": "Si necesita ayuda con la configuracion, visite: {docs_url}",
         "data": {
           "name": "Nombre del dispositivo (usado como prefijo de sensores)",
           "host": "IP o nombre de host",
           "port": "Puerto TCP (1-65535)",
-          "scan_interval": "Intervalo de sondeo en segundos (30-600)"
+          "scan_interval": "Intervalo de sondeo en segundos (30-600)",
+          "power_reducer": "Modulo Power Reducer instalado"
         }
       },
       "reconfigure": {
@@ -38,6 +39,7 @@
         "title": "Opciones de Elios4You",
         "description": "Configurar opciones de ejecucion",
         "data": {
+          "power_reducer": "Modulo Power Reducer instalado",
           "scan_interval": "Intervalo de sondeo en segundos (30-600)",
           "enable_repair_notification": "Habilitar notificaciones de reparacion",
           "failures_threshold": "Fallos antes de notificacion (1-10)",
@@ -48,54 +50,203 @@
   },
   "entity": {
     "sensor": {
-      "produced_power": { "name": "Potencia Producida" },
-      "consumed_power": { "name": "Potencia Consumida" },
-      "self_consumed_power": { "name": "Potencia Autoconsumida" },
-      "bought_power": { "name": "Potencia Importada" },
-      "sold_power": { "name": "Potencia Exportada" },
-      "daily_peak": { "name": "Pico Diario" },
-      "monthly_peak": { "name": "Pico Mensual" },
-      "produced_energy": { "name": "Energía Producida" },
-      "produced_energy_f1": { "name": "Energía Producida F1" },
-      "produced_energy_f2": { "name": "Energía Producida F2" },
-      "produced_energy_f3": { "name": "Energía Producida F3" },
-      "consumed_energy": { "name": "Energía Consumida" },
-      "consumed_energy_f1": { "name": "Energía Consumida F1" },
-      "consumed_energy_f2": { "name": "Energía Consumida F2" },
-      "consumed_energy_f3": { "name": "Energía Consumida F3" },
-      "self_consumed_energy": { "name": "Energía Autoconsumida" },
-      "self_consumed_energy_f1": { "name": "Energía Autoconsumida F1" },
-      "self_consumed_energy_f2": { "name": "Energía Autoconsumida F2" },
-      "self_consumed_energy_f3": { "name": "Energía Autoconsumida F3" },
-      "bought_energy": { "name": "Energía Importada" },
-      "bought_energy_f1": { "name": "Energía Importada F1" },
-      "bought_energy_f2": { "name": "Energía Importada F2" },
-      "bought_energy_f3": { "name": "Energía Importada F3" },
-      "sold_energy": { "name": "Energía Exportada" },
-      "sold_energy_f1": { "name": "Energía Exportada F1" },
-      "sold_energy_f2": { "name": "Energía Exportada F2" },
-      "sold_energy_f3": { "name": "Energía Exportada F3" },
-      "alarm_1": { "name": "Alarma 1" },
-      "alarm_2": { "name": "Alarma 2" },
-      "power_alarm": { "name": "Alarma de Potencia" },
-      "pwm_mode": { "name": "Modo PWM" },
-      "pr_ssv": { "name": "Reductor de Potencia Ssv" },
-      "rel_ssv": { "name": "Rele Ssv" },
-      "rel_mode": { "name": "Modo Rele" },
-      "rel_warning": { "name": "Advertencia Rele" },
-      "rcap": { "name": "RedCap" },
-      "fwtop": { "name": "Version Firmware TOP" },
-      "fwbtm": { "name": "Version Firmware BOTTOM" },
-      "sn": { "name": "Numero de Serie" },
-      "hwver": { "name": "Version Hardware" },
-      "btver": { "name": "Version BT" },
-      "hw_wifi": { "name": "Version HW Wifi" },
-      "s2w_app_version": { "name": "Version App Wifi" },
-      "s2w_geps_version": { "name": "Version Geps Wifi" },
-      "s2w_wlan_version": { "name": "Version Wlan Wifi" }
+      "produced_power": {
+        "name": "Potencia Producida"
+      },
+      "consumed_power": {
+        "name": "Potencia Consumida"
+      },
+      "self_consumed_power": {
+        "name": "Potencia Autoconsumida"
+      },
+      "bought_power": {
+        "name": "Potencia Importada"
+      },
+      "sold_power": {
+        "name": "Potencia Exportada"
+      },
+      "daily_peak": {
+        "name": "Pico Diario"
+      },
+      "monthly_peak": {
+        "name": "Pico Mensual"
+      },
+      "produced_energy": {
+        "name": "Energía Producida"
+      },
+      "produced_energy_f1": {
+        "name": "Energía Producida F1"
+      },
+      "produced_energy_f2": {
+        "name": "Energía Producida F2"
+      },
+      "produced_energy_f3": {
+        "name": "Energía Producida F3"
+      },
+      "consumed_energy": {
+        "name": "Energía Consumida"
+      },
+      "consumed_energy_f1": {
+        "name": "Energía Consumida F1"
+      },
+      "consumed_energy_f2": {
+        "name": "Energía Consumida F2"
+      },
+      "consumed_energy_f3": {
+        "name": "Energía Consumida F3"
+      },
+      "self_consumed_energy": {
+        "name": "Energía Autoconsumida"
+      },
+      "self_consumed_energy_f1": {
+        "name": "Energía Autoconsumida F1"
+      },
+      "self_consumed_energy_f2": {
+        "name": "Energía Autoconsumida F2"
+      },
+      "self_consumed_energy_f3": {
+        "name": "Energía Autoconsumida F3"
+      },
+      "bought_energy": {
+        "name": "Energía Importada"
+      },
+      "bought_energy_f1": {
+        "name": "Energía Importada F1"
+      },
+      "bought_energy_f2": {
+        "name": "Energía Importada F2"
+      },
+      "bought_energy_f3": {
+        "name": "Energía Importada F3"
+      },
+      "sold_energy": {
+        "name": "Energía Exportada"
+      },
+      "sold_energy_f1": {
+        "name": "Energía Exportada F1"
+      },
+      "sold_energy_f2": {
+        "name": "Energía Exportada F2"
+      },
+      "sold_energy_f3": {
+        "name": "Energía Exportada F3"
+      },
+      "alarm_1": {
+        "name": "Alarma 1"
+      },
+      "alarm_2": {
+        "name": "Alarma 2"
+      },
+      "power_alarm": {
+        "name": "Alarma de Potencia"
+      },
+      "pwm_mode": {
+        "name": "Modo PWM"
+      },
+      "pr_ssv": {
+        "name": "Power Reducer Ssv"
+      },
+      "rel_ssv": {
+        "name": "Rele Ssv"
+      },
+      "rel_mode": {
+        "name": "Modo Rele"
+      },
+      "rel_warning": {
+        "name": "Advertencia Rele"
+      },
+      "rcap": {
+        "name": "RedCap"
+      },
+      "fwtop": {
+        "name": "Version Firmware TOP"
+      },
+      "fwbtm": {
+        "name": "Version Firmware BOTTOM"
+      },
+      "sn": {
+        "name": "Numero de Serie"
+      },
+      "hwver": {
+        "name": "Version Hardware"
+      },
+      "btver": {
+        "name": "Version BT"
+      },
+      "hw_wifi": {
+        "name": "Version HW Wifi"
+      },
+      "s2w_app_version": {
+        "name": "Version App Wifi"
+      },
+      "s2w_geps_version": {
+        "name": "Version Geps Wifi"
+      },
+      "s2w_wlan_version": {
+        "name": "Version Wlan Wifi"
+      },
+      "reducer_power": {
+        "name": "Power Reducer Output"
+      },
+      "boost_remaining": {
+        "name": "Boost Time Remaining"
+      },
+      "boost_power": {
+        "name": "Boost Power Level"
+      },
+      "boost_delay": {
+        "name": "Boost Total Duration"
+      },
+      "pr_mode": {
+        "name": "Power Reducer Mode",
+        "state": {
+          "auto": "Auto",
+          "boost": "Boost",
+          "force_off": "Force Off"
+        }
+      },
+      "device_clock_utc": { "name": "Device Clock UTC" },
+      "clock_drift": { "name": "Clock Drift" }
+    },
+    "binary_sensor": {
+      "boost_active": {
+        "name": "Boost Active"
+      },
+      "pr_load_warning": {
+        "name": "Power Reducer Load Warning"
+      }
     },
     "switch": {
-      "relay_state": { "name": "Rele" }
+      "relay_state": {
+        "name": "Rele"
+      }
+    },
+    "button": {
+      "boost_start": {
+        "name": "Start Boost"
+      },
+      "boost_cancel": {
+        "name": "Switch to Auto"
+      },
+      "pr_force_off": {
+        "name": "Power Reducer Force Off"
+      },
+      "refresh_pr_params": {
+        "name": "Actualizar parámetros Power Reducer"
+      },
+      "sync_clock": { "name": "Sync Clock" }
+    },
+    "number": {
+      "spf_ldw": {
+        "name": "Power Reducer Load Power"
+      },
+      "spf_spw": {
+        "name": "Power Reducer Surplus Threshold"
+      },
+      "boost_level": { "name": "Nivel de Potencia del Boost" },
+      "boost_duration": {
+        "name": "Boost Duration"
+      }
     }
   },
   "issues": {
@@ -118,6 +269,18 @@
     },
     "telnet_command_error": {
       "message": "El comando Telnet {command} no se pudo ejecutar"
+    },
+    "boost_command_timeout": {
+      "message": "Power Reducer command '{action}' was not confirmed by the device after 3 seconds"
+    },
+    "relay_command_timeout": {
+      "message": "Relay command was not confirmed by the device after 5 seconds"
+    },
+    "number_out_of_range": {
+      "message": "El valor {value} está fuera del rango [{min}, {max}] para {key}"
+    },
+    "clock_sync_failed": {
+      "message": "Failed to synchronize device clock"
     }
   },
   "device_automation": {

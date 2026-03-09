@@ -6,8 +6,11 @@ https://github.com/alexdelprete/ha-4noks-elios4you
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Direct imports using symlink (fournoks_elios4you -> 4noks_elios4you)
 from custom_components.fournoks_elios4you.api import (
@@ -15,8 +18,12 @@ from custom_components.fournoks_elios4you.api import (
     TelnetCommandError,
     TelnetConnectionError,
 )
-from custom_components.fournoks_elios4you.const import CONN_TIMEOUT, MANUFACTURER, MODEL
-import pytest
+from custom_components.fournoks_elios4you.const import (
+    CLOCK_DRIFT_THRESHOLD,
+    CONN_TIMEOUT,
+    MANUFACTURER,
+    MODEL,
+)
 
 from .conftest import TEST_HOST, TEST_NAME, TEST_PORT, TEST_SERIAL_NUMBER
 
@@ -1137,4 +1144,392 @@ class TestEdgeCases:
         await api._safe_close()
 
         assert api._writer is None
+
+
+class TestCommandCase:
+    """Tests verifying command case handling in _async_send_raw."""
+
+    @pytest.mark.asyncio
+    async def test_async_send_raw_passes_command_case_through(self, mock_hass) -> None:
+        """Verify _async_send_raw does not modify command case."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        mock_writer = MagicMock()
+        captured: list[str] = []
+
+        def capture_write(s: str) -> None:
+            captured.append(s)
+
+        mock_writer.write = capture_write
+        mock_writer.drain = AsyncMock()
+        api._writer = mock_writer
+        api._async_read_until = AsyncMock(return_value="ready...")
+
+        await api._async_send_raw("@REL 0 1")
+
+        assert captured[0] == "@REL 0 1\n"
+
+    @pytest.mark.asyncio
+    async def test_telnet_set_relay_sends_uppercase_rel(self, mock_hass) -> None:
+        """Verify telnet_set_relay sends @REL (uppercase) to the device."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        captured: list[str] = []
+
+        async def fake_send_raw(cmd: str) -> str | None:
+            captured.append(cmd)
+            if cmd.startswith("@REL 0"):
+                return "ready..."
+            # read-back via _get_data_with_retry → _async_send_command → _async_send_raw
+            return "@rel\nrel=1\n\nready..."
+
+        api._async_send_raw = fake_send_raw
+        api._ensure_connected = AsyncMock()
+        api._safe_close = AsyncMock()
+
+        # _get_data_with_retry calls _async_send_command which lowercases; intercept it
+        async def fake_get_data_retry(cmd: str, max_retries: int = 3) -> dict | None:
+            return {"rel": "1"}
+
+        api._get_data_with_retry = fake_get_data_retry
+
+        await api.telnet_set_relay("on")
+
+        assert any(c.startswith("@REL 0") for c in captured), f"No @REL in {captured}"
+
+
+class TestHwverHandshake:
+    """Tests for LAN handshake and HWVER parsing."""
+
+    def test_parse_hwver_full(self, mock_hass) -> None:
+        """Verify all fields decoded correctly from 12-char HWVER."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        # mc_type=01, rs485_byte at [6:8]=01 (bit0=1), vendor_id=0C, pr_hw bit=1
+        hwver = "010000010C11"
+        api._parse_hwver(hwver)
+
+        assert api.data["hwver_raw"] == hwver
+        assert api.data["mc_type"] == "01"
+        assert api.data["has_rs485"] == 1
+        assert api.data["vendor_id"] == "0C"
+        assert api.data["has_pr_hw"] == 1
+
+    def test_parse_hwver_no_rs485_no_pr(self, mock_hass) -> None:
+        """Verify rs485=0 and pr_hw=0 decoded from HWVER."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        # rs485_byte at [6:8]=00, pr_hw bit=0
+        hwver = "000000000C00"
+        api._parse_hwver(hwver)
+
+        assert api.data["has_rs485"] == 0
+        assert api.data["has_pr_hw"] == 0
+
+    def test_parse_hwver_short_no_crash(self, mock_hass) -> None:
+        """Verify short HWVER string is handled gracefully without crash."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._parse_hwver("0100")  # Only 4 chars — too short
+        # hwver_raw should remain empty (no update)
+        assert api.data["hwver_raw"] == ""
+
+    @pytest.mark.asyncio
+    async def test_perform_handshake_success(self, mock_hass) -> None:
+        """Verify handshake parses HWVER and populates data."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        mock_writer = MagicMock()
+        mock_writer.write = MagicMock()
+        mock_writer.drain = AsyncMock()
+        api._writer = mock_writer
+        api._async_read_until = AsyncMock(return_value="@hwr\nHWVER=010000000C01\n\nready...")
+
+        await api._perform_handshake()
+
+        assert api.data["hwver_raw"] == "010000000C01"
+
+    @pytest.mark.asyncio
+    async def test_perform_handshake_failure_raises(self, mock_hass) -> None:
+        """Verify TelnetConnectionError raised when HWVER not in response."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        mock_writer = MagicMock()
+        mock_writer.write = MagicMock()
+        mock_writer.drain = AsyncMock()
+        api._writer = mock_writer
+        api._async_read_until = AsyncMock(return_value="UNKNOWN RESPONSE\nready...")
+
+        with pytest.raises(TelnetConnectionError):
+            await api._perform_handshake()
+
+    @pytest.mark.asyncio
+    async def test_perform_handshake_none_response_raises(self, mock_hass) -> None:
+        """Verify TelnetConnectionError raised when _async_send_raw returns None."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        mock_writer = MagicMock()
+        mock_writer.write = MagicMock()
+        mock_writer.drain = AsyncMock()
+        api._writer = mock_writer
+        # No 'ready...' in response → _async_send_raw returns None
+        api._async_read_until = AsyncMock(return_value="")
+
+        with pytest.raises(TelnetConnectionError):
+            await api._perform_handshake()
+
+
+class TestClockManagement:
+    """Tests for device clock read/write/sync."""
+
+    @pytest.mark.asyncio
+    async def test_async_read_clock_parses_utc_line(self, mock_hass) -> None:
+        """Verify async_read_clock returns the UTC time string."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        mock_writer = MagicMock()
+        mock_writer.write = MagicMock()
+        mock_writer.drain = AsyncMock()
+        api._writer = mock_writer
+        api._async_read_until = AsyncMock(return_value="@clk\nUTC: 01.01.2026 12:00:00\nready...")
+
+        result = await api.async_read_clock()
+
+        assert result == "01.01.2026 12:00:00"
+
+    @pytest.mark.asyncio
+    async def test_async_read_clock_no_utc_line_returns_none(self, mock_hass) -> None:
+        """Verify async_read_clock returns None when UTC line missing."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        mock_writer = MagicMock()
+        mock_writer.write = MagicMock()
+        mock_writer.drain = AsyncMock()
+        api._writer = mock_writer
+        api._async_read_until = AsyncMock(return_value="@clk\nSOME=value\nready...")
+
+        result = await api.async_read_clock()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_auto_sync_triggers_when_drift_exceeds_threshold(self, mock_hass) -> None:
+        """Verify async_set_clock called when drift > CLOCK_DRIFT_THRESHOLD."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        # Set up a connected writer so _async_send_raw can be called
+        api._ensure_connected = AsyncMock()
+        api._safe_close = AsyncMock()
+        api._require_data = AsyncMock(
+            return_value={
+                "produced_power": "1.0",
+                "consumed_power": "1.0",
+                "self_consumed_power": "1.0",
+                "bought_power": "1.0",
+                "sold_power": "1.0",
+                "daily_peak": "1.0",
+                "monthly_peak": "1.0",
+            }
+        )
+
+        set_clock_called = []
+
+        async def fake_set_clock() -> bool:
+            set_clock_called.append(True)
+            return True
+
+        # Drift > threshold: device is 400s ahead
+        far_future = datetime.now(UTC) + timedelta(seconds=CLOCK_DRIFT_THRESHOLD + 100)
+        utc_str = far_future.strftime("%d.%m.%Y %H:%M:%S")
+
+        async def fake_read_clock() -> str | None:
+            return utc_str
+
+        api.async_read_clock = fake_read_clock
+        api.async_set_clock = fake_set_clock
+
+        # Patch _require_data to return minimal valid dicts for all 3 calls
+        dat_data = {
+            "produced_power": "1.0",
+            "consumed_power": "1.0",
+            "bought_power": "1.0",
+            "sold_power": "1.0",
+            "daily_peak": "1.0",
+            "monthly_peak": "1.0",
+            "produced_energy": "1.0",
+            "produced_energy_f1": "1.0",
+            "produced_energy_f2": "1.0",
+            "produced_energy_f3": "1.0",
+            "consumed_energy": "1.0",
+            "consumed_energy_f1": "1.0",
+            "consumed_energy_f2": "1.0",
+            "consumed_energy_f3": "1.0",
+            "bought_energy": "1.0",
+            "bought_energy_f1": "1.0",
+            "bought_energy_f2": "1.0",
+            "bought_energy_f3": "1.0",
+            "sold_energy": "1.0",
+            "sold_energy_f1": "1.0",
+            "sold_energy_f2": "1.0",
+            "sold_energy_f3": "1.0",
+            "alarm_1": "0",
+            "alarm_2": "0",
+            "power_alarm": "0",
+            "relay_state": "0",
+            "pwm_mode": "0",
+            "pr_ssv": "0",
+            "rel_ssv": "0",
+            "rel_mode": "0",
+            "rel_warning": "0",
+            "rcap": "0",
+            "reducer_power": "0",
+            "boost_active": "0",
+            "boost_power": "0",
+            "boost_delay": "0",
+            "boost_remaining": "0",
+            "pr_load_warning": "0",
+        }
+        sta_data = {"utc_time": "01.01.2026 12:00:00"}
+        inf_data = {
+            "fwtop": "1.0",
+            "fwbtm": "1.0",
+            "sn": TEST_SERIAL_NUMBER,
+            "hwver": "010000000C01",
+            "btver": "1.0",
+            "hw_wifi": "1.0",
+            "s2w_app_version": "1.0",
+            "s2w_geps_version": "1.0",
+            "s2w_wlan_version": "1.0",
+        }
+        call_count = 0
+
+        async def fake_require_data(cmd: str) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return dat_data
+            if call_count == 2:
+                return sta_data
+            return inf_data
+
+        api._require_data = fake_require_data
+
+        await api.async_get_data()
+
+        assert len(set_clock_called) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_sync_when_drift_under_threshold(self, mock_hass) -> None:
+        """Verify async_set_clock NOT called when drift <= CLOCK_DRIFT_THRESHOLD."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._safe_close = AsyncMock()
+
+        set_clock_called = []
+
+        async def fake_set_clock() -> bool:
+            set_clock_called.append(True)
+            return True
+
+        # Drift < threshold: device is 60s ahead
+        near_future = datetime.now(UTC) + timedelta(seconds=60)
+        utc_str = near_future.strftime("%d.%m.%Y %H:%M:%S")
+
+        async def fake_read_clock() -> str | None:
+            return utc_str
+
+        api.async_read_clock = fake_read_clock
+        api.async_set_clock = fake_set_clock
+
+        dat_data = {
+            "produced_power": "1.0",
+            "consumed_power": "1.0",
+            "bought_power": "1.0",
+            "sold_power": "1.0",
+            "daily_peak": "1.0",
+            "monthly_peak": "1.0",
+            "produced_energy": "1.0",
+            "produced_energy_f1": "1.0",
+            "produced_energy_f2": "1.0",
+            "produced_energy_f3": "1.0",
+            "consumed_energy": "1.0",
+            "consumed_energy_f1": "1.0",
+            "consumed_energy_f2": "1.0",
+            "consumed_energy_f3": "1.0",
+            "bought_energy": "1.0",
+            "bought_energy_f1": "1.0",
+            "bought_energy_f2": "1.0",
+            "bought_energy_f3": "1.0",
+            "sold_energy": "1.0",
+            "sold_energy_f1": "1.0",
+            "sold_energy_f2": "1.0",
+            "sold_energy_f3": "1.0",
+            "alarm_1": "0",
+            "alarm_2": "0",
+            "power_alarm": "0",
+            "relay_state": "0",
+            "pwm_mode": "0",
+            "pr_ssv": "0",
+            "rel_ssv": "0",
+            "rel_mode": "0",
+            "rel_warning": "0",
+            "rcap": "0",
+            "reducer_power": "0",
+            "boost_active": "0",
+            "boost_power": "0",
+            "boost_delay": "0",
+            "boost_remaining": "0",
+            "pr_load_warning": "0",
+        }
+        sta_data = {"utc_time": "01.01.2026 12:00:00"}
+        inf_data = {
+            "fwtop": "1.0",
+            "fwbtm": "1.0",
+            "sn": TEST_SERIAL_NUMBER,
+            "hwver": "010000000C01",
+            "btver": "1.0",
+            "hw_wifi": "1.0",
+            "s2w_app_version": "1.0",
+            "s2w_geps_version": "1.0",
+            "s2w_wlan_version": "1.0",
+        }
+        call_count = 0
+
+        async def fake_require_data(cmd: str) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return dat_data
+            if call_count == 2:
+                return sta_data
+            return inf_data
+
+        api._require_data = fake_require_data
+
+        await api.async_get_data()
+
+        assert len(set_clock_called) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_sync_clock_public_acquires_lock(self, mock_hass) -> None:
+        """Verify async_sync_clock acquires lock, calls set_clock, resets drift."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api.data["clock_drift"] = 999
+
+        set_clock_called = []
+
+        async def fake_set_clock() -> bool:
+            set_clock_called.append(True)
+            return True
+
+        api.async_set_clock = fake_set_clock
+
+        result = await api.async_sync_clock()
+
+        assert result is True
+        assert len(set_clock_called) == 1
+        assert api.data["clock_drift"] == 0
+
+    @pytest.mark.asyncio
+    async def test_async_sync_clock_returns_false_on_error(self, mock_hass) -> None:
+        """Verify async_sync_clock returns False when connection fails."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock(
+            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
+        )
+        api._safe_close = AsyncMock()
+
+        result = await api.async_sync_clock()
+
+        assert result is False
         assert api._reader is None

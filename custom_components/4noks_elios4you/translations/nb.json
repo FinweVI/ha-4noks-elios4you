@@ -3,12 +3,13 @@
     "step": {
       "user": {
         "title": "Elios4You-tilkoblingskonfigurasjon",
-        "description": "Hvis du trenger hjelp med konfigurasjonen, ga til: https://github.com/alexdelprete/ha-4noks-elios4you",
+        "description": "Hvis du trenger hjelp med konfigurasjonen, ga til: {docs_url}",
         "data": {
           "name": "Enhetsnavn (brukes som sensorprefiks)",
           "host": "IP eller vertsnavn",
           "port": "TCP-port (1-65535)",
-          "scan_interval": "Avsporringsintervall i sekunder (30-600)"
+          "scan_interval": "Avsporringsintervall i sekunder (30-600)",
+          "power_reducer": "Power Reducer-modul installert"
         }
       },
       "reconfigure": {
@@ -38,6 +39,7 @@
         "title": "Elios4You-alternativer",
         "description": "Du kan konfigurere et valgfritt gjenopprettingsskript som kjores nar enheten slutter a svare. Skriptet kan bruke folgende variabler:\n- **device_name**: Enhetens navn\n- **host**: Enhetens IP-adresse\n- **port**: Enhetens TCP-port",
         "data": {
+          "power_reducer": "Power Reducer-modul installert",
           "recovery_script": "Gjenopprettingsskript (valgfritt, kjores nar enheten ikke svarer)",
           "enable_repair_notification": "Aktiver gjenopprettingsvarsler",
           "failures_threshold": "Feil for varsling (1-10)",
@@ -48,54 +50,203 @@
   },
   "entity": {
     "sensor": {
-      "produced_power": { "name": "Produsert Effekt" },
-      "consumed_power": { "name": "Forbrukt Effekt" },
-      "self_consumed_power": { "name": "Egenforbruk Effekt" },
-      "bought_power": { "name": "Importert Effekt" },
-      "sold_power": { "name": "Eksportert Effekt" },
-      "daily_peak": { "name": "Topp Daglig" },
-      "monthly_peak": { "name": "Topp Manedlig" },
-      "produced_energy": { "name": "Produsert Energi" },
-      "produced_energy_f1": { "name": "Produsert Energi F1" },
-      "produced_energy_f2": { "name": "Produsert Energi F2" },
-      "produced_energy_f3": { "name": "Produsert Energi F3" },
-      "consumed_energy": { "name": "Forbrukt Energi" },
-      "consumed_energy_f1": { "name": "Forbrukt Energi F1" },
-      "consumed_energy_f2": { "name": "Forbrukt Energi F2" },
-      "consumed_energy_f3": { "name": "Forbrukt Energi F3" },
-      "self_consumed_energy": { "name": "Egenforbruk Energi" },
-      "self_consumed_energy_f1": { "name": "Egenforbruk Energi F1" },
-      "self_consumed_energy_f2": { "name": "Egenforbruk Energi F2" },
-      "self_consumed_energy_f3": { "name": "Egenforbruk Energi F3" },
-      "bought_energy": { "name": "Importert Energi" },
-      "bought_energy_f1": { "name": "Importert Energi F1" },
-      "bought_energy_f2": { "name": "Importert Energi F2" },
-      "bought_energy_f3": { "name": "Importert Energi F3" },
-      "sold_energy": { "name": "Eksportert Energi" },
-      "sold_energy_f1": { "name": "Eksportert Energi F1" },
-      "sold_energy_f2": { "name": "Eksportert Energi F2" },
-      "sold_energy_f3": { "name": "Eksportert Energi F3" },
-      "alarm_1": { "name": "Alarm 1" },
-      "alarm_2": { "name": "Alarm 2" },
-      "power_alarm": { "name": "Effektalarm" },
-      "pwm_mode": { "name": "PWM-modus" },
-      "pr_ssv": { "name": "Effektreduserer Ssv" },
-      "rel_ssv": { "name": "Rele Ssv" },
-      "rel_mode": { "name": "Rele-modus" },
-      "rel_warning": { "name": "Rele-advarsel" },
-      "rcap": { "name": "RedCap" },
-      "fwtop": { "name": "Firmware TOP Versjon" },
-      "fwbtm": { "name": "Firmware BOTTOM Versjon" },
-      "sn": { "name": "Serienummer" },
-      "hwver": { "name": "Maskinvareversjon" },
-      "btver": { "name": "BT-versjon" },
-      "hw_wifi": { "name": "Wifi HW-versjon" },
-      "s2w_app_version": { "name": "Wifi App-versjon" },
-      "s2w_geps_version": { "name": "Wifi Geps-versjon" },
-      "s2w_wlan_version": { "name": "Wifi Wlan-versjon" }
+      "produced_power": {
+        "name": "Produsert Effekt"
+      },
+      "consumed_power": {
+        "name": "Forbrukt Effekt"
+      },
+      "self_consumed_power": {
+        "name": "Egenforbruk Effekt"
+      },
+      "bought_power": {
+        "name": "Importert Effekt"
+      },
+      "sold_power": {
+        "name": "Eksportert Effekt"
+      },
+      "daily_peak": {
+        "name": "Topp Daglig"
+      },
+      "monthly_peak": {
+        "name": "Topp Manedlig"
+      },
+      "produced_energy": {
+        "name": "Produsert Energi"
+      },
+      "produced_energy_f1": {
+        "name": "Produsert Energi F1"
+      },
+      "produced_energy_f2": {
+        "name": "Produsert Energi F2"
+      },
+      "produced_energy_f3": {
+        "name": "Produsert Energi F3"
+      },
+      "consumed_energy": {
+        "name": "Forbrukt Energi"
+      },
+      "consumed_energy_f1": {
+        "name": "Forbrukt Energi F1"
+      },
+      "consumed_energy_f2": {
+        "name": "Forbrukt Energi F2"
+      },
+      "consumed_energy_f3": {
+        "name": "Forbrukt Energi F3"
+      },
+      "self_consumed_energy": {
+        "name": "Egenforbruk Energi"
+      },
+      "self_consumed_energy_f1": {
+        "name": "Egenforbruk Energi F1"
+      },
+      "self_consumed_energy_f2": {
+        "name": "Egenforbruk Energi F2"
+      },
+      "self_consumed_energy_f3": {
+        "name": "Egenforbruk Energi F3"
+      },
+      "bought_energy": {
+        "name": "Importert Energi"
+      },
+      "bought_energy_f1": {
+        "name": "Importert Energi F1"
+      },
+      "bought_energy_f2": {
+        "name": "Importert Energi F2"
+      },
+      "bought_energy_f3": {
+        "name": "Importert Energi F3"
+      },
+      "sold_energy": {
+        "name": "Eksportert Energi"
+      },
+      "sold_energy_f1": {
+        "name": "Eksportert Energi F1"
+      },
+      "sold_energy_f2": {
+        "name": "Eksportert Energi F2"
+      },
+      "sold_energy_f3": {
+        "name": "Eksportert Energi F3"
+      },
+      "alarm_1": {
+        "name": "Alarm 1"
+      },
+      "alarm_2": {
+        "name": "Alarm 2"
+      },
+      "power_alarm": {
+        "name": "Effektalarm"
+      },
+      "pwm_mode": {
+        "name": "PWM-modus"
+      },
+      "pr_ssv": {
+        "name": "Power Reducer Ssv"
+      },
+      "rel_ssv": {
+        "name": "Rele Ssv"
+      },
+      "rel_mode": {
+        "name": "Rele-modus"
+      },
+      "rel_warning": {
+        "name": "Rele-advarsel"
+      },
+      "rcap": {
+        "name": "RedCap"
+      },
+      "fwtop": {
+        "name": "Firmware TOP Versjon"
+      },
+      "fwbtm": {
+        "name": "Firmware BOTTOM Versjon"
+      },
+      "sn": {
+        "name": "Serienummer"
+      },
+      "hwver": {
+        "name": "Maskinvareversjon"
+      },
+      "btver": {
+        "name": "BT-versjon"
+      },
+      "hw_wifi": {
+        "name": "Wifi HW-versjon"
+      },
+      "s2w_app_version": {
+        "name": "Wifi App-versjon"
+      },
+      "s2w_geps_version": {
+        "name": "Wifi Geps-versjon"
+      },
+      "s2w_wlan_version": {
+        "name": "Wifi Wlan-versjon"
+      },
+      "reducer_power": {
+        "name": "Power Reducer Output"
+      },
+      "boost_remaining": {
+        "name": "Boost Time Remaining"
+      },
+      "boost_power": {
+        "name": "Boost Power Level"
+      },
+      "boost_delay": {
+        "name": "Boost Total Duration"
+      },
+      "pr_mode": {
+        "name": "Power Reducer Mode",
+        "state": {
+          "auto": "Auto",
+          "boost": "Boost",
+          "force_off": "Force Off"
+        }
+      },
+      "device_clock_utc": { "name": "Device Clock UTC" },
+      "clock_drift": { "name": "Clock Drift" }
+    },
+    "binary_sensor": {
+      "boost_active": {
+        "name": "Boost Active"
+      },
+      "pr_load_warning": {
+        "name": "Power Reducer Load Warning"
+      }
     },
     "switch": {
-      "relay_state": { "name": "Rele" }
+      "relay_state": {
+        "name": "Rele"
+      }
+    },
+    "button": {
+      "boost_start": {
+        "name": "Start Boost"
+      },
+      "boost_cancel": {
+        "name": "Switch to Auto"
+      },
+      "pr_force_off": {
+        "name": "Power Reducer Force Off"
+      },
+      "refresh_pr_params": {
+        "name": "Oppdater Power Reducer-parametere"
+      },
+      "sync_clock": { "name": "Sync Clock" }
+    },
+    "number": {
+      "spf_ldw": {
+        "name": "Power Reducer Load Power"
+      },
+      "spf_spw": {
+        "name": "Power Reducer Surplus Threshold"
+      },
+      "boost_level": { "name": "Boost-nivaå" },
+      "boost_duration": {
+        "name": "Boost Duration"
+      }
     }
   },
   "issues": {
@@ -118,6 +269,18 @@
     },
     "telnet_command_error": {
       "message": "Telnet-kommando {command} kunne ikke utfores"
+    },
+    "boost_command_timeout": {
+      "message": "Power Reducer command '{action}' was not confirmed by the device after 3 seconds"
+    },
+    "relay_command_timeout": {
+      "message": "Relay command was not confirmed by the device after 5 seconds"
+    },
+    "number_out_of_range": {
+      "message": "Verdien {value} er utenfor området [{min}, {max}] for {key}"
+    },
+    "clock_sync_failed": {
+      "message": "Failed to synchronize device clock"
     }
   },
   "device_automation": {

@@ -8,7 +8,8 @@
           "name": "Custom Name of the device (used for sensors' prefix)",
           "host": "IP or hostname",
           "port": "TCP port (1-65535)",
-          "scan_interval": "Polling Period in seconds (30-600)"
+          "scan_interval": "Polling Period in seconds (30-600)",
+          "power_reducer": "Power Reducer module installed"
         }
       },
       "reconfigure": {
@@ -38,6 +39,7 @@
         "title": "Elios4You Options",
         "description": "Configure runtime options.\n\n**Recovery Script Variables:**\nWhen configured, the recovery script receives these variables:\n- `device_name`: Device name\n- `host`: IP address/hostname\n- `port`: TCP port\n- `serial_number`: Device serial number\n- `mac_address`: Device MAC address\n- `failures_count`: Number of consecutive failures",
         "data": {
+          "power_reducer": "Power Reducer module installed",
           "scan_interval": "Polling Period in seconds (30-600)",
           "enable_repair_notification": "Enable repair notifications",
           "failures_threshold": "Failures before notification (1-10)",
@@ -92,13 +94,48 @@
       "hw_wifi": { "name": "Wifi HW Version" },
       "s2w_app_version": { "name": "Wifi App Version" },
       "s2w_geps_version": { "name": "Wifi Geps Version" },
-      "s2w_wlan_version": { "name": "Wifi Wlan Version" }
+      "s2w_wlan_version": { "name": "Wifi Wlan Version" },
+      "reducer_power": { "name": "Power Reducer Output" },
+      "boost_remaining": { "name": "Boost Time Remaining" },
+      "boost_power": { "name": "Boost Power Level" },
+      "boost_delay": { "name": "Boost Total Duration" },
+      "pr_mode": {
+        "name": "Power Reducer Mode",
+        "state": {
+          "auto": "Auto",
+          "boost": "Boost",
+          "force_off": "Force Off"
+        }
+      },
+      "device_clock_utc": { "name": "Device Clock UTC" },
+      "clock_drift": { "name": "Clock Drift" }
+    },
+    "binary_sensor": {
+      "boost_active": { "name": "Boost Active" },
+      "pr_load_warning": { "name": "Power Reducer Load Warning" }
     },
     "switch": {
       "relay_state": { "name": "Relay" }
+    },
+    "button": {
+      "boost_start": { "name": "Start Boost" },
+      "boost_cancel": { "name": "Switch to Auto" },
+      "pr_force_off": { "name": "Power Reducer Force Off" },
+      "refresh_pr_params": { "name": "Refresh Power Reducer Parameters" },
+      "sync_clock": { "name": "Sync Clock" }
+    },
+    "number": {
+      "spf_ldw": { "name": "Power Reducer Load Power" },
+      "spf_spw": { "name": "Power Reducer Surplus Threshold" },
+      "boost_duration": { "name": "Boost Duration" },
+      "boost_level": { "name": "Boost Level" }
     }
   },
   "issues": {
+    "lovelace_yaml_resource": {
+      "title": "Scheduler card requires manual Lovelace resource",
+      "description": "Your Lovelace dashboard is in **YAML mode**, so the Elios4You scheduler card cannot be registered automatically.\n\nAdd the following entry to your Lovelace YAML configuration:\n\n```yaml\nresources:\n  - url: {resource_url}\n    type: module\n```\n\nAfter adding it, reload your browser to load the card."
+    },
     "connection_failed": {
       "title": "{device_name} is not responding",
       "description": "The integration cannot communicate with your Elios4You device at {host}:{port}.\n\n**Possible causes:**\n- The device is powered off or not connected to the network\n- The device is connected but not responding to commands (device may need a restart)\n- The IP address has changed\n- A firewall is blocking the connection\n- The Telnet port is not accessible\n\n**To resolve:**\n1. Check that the device is powered on and connected to your network\n2. Try restarting the device (power cycle)\n3. Verify the IP address in your router's DHCP table\n4. If the IP has changed, reconfigure the integration with the new address"
@@ -121,6 +158,18 @@
     },
     "telnet_command_error": {
       "message": "Telnet command {command} failed to execute"
+    },
+    "boost_command_timeout": {
+      "message": "Power Reducer command '{action}' was not confirmed by the device after 3 seconds"
+    },
+    "relay_command_timeout": {
+      "message": "Relay command was not confirmed by the device after 5 seconds"
+    },
+    "number_out_of_range": {
+      "message": "Value {value} is out of range [{min}, {max}] for {key}"
+    },
+    "clock_sync_failed": {
+      "message": "Failed to synchronize device clock"
     }
   },
   "device_automation": {

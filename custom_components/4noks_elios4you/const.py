@@ -3,9 +3,12 @@
 https://github.com/alexdelprete/ha-4noks-elios4you
 """
 
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.components.number import NumberMode
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.components.switch import SwitchDeviceClass
-from homeassistant.const import UnitOfEnergy, UnitOfPower
+from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower, UnitOfTime
+from homeassistant.helpers.entity import EntityCategory
 
 # Base component constants
 NAME = "4-noks Elios4you integration"
@@ -30,16 +33,50 @@ CONN_TIMEOUT = 5
 # Retry configuration for transient failures
 COMMAND_RETRY_COUNT: int = 3  # Retry each command up to 3 times
 COMMAND_RETRY_DELAY: float = 0.3  # 300ms delay between retries
+# Clock management
+CLOCK_DRIFT_THRESHOLD: int = 300  # seconds (5 minutes)
 
 # Repair notification options
 CONF_ENABLE_REPAIR_NOTIFICATION = "enable_repair_notification"
 CONF_FAILURES_THRESHOLD = "failures_threshold"
 CONF_RECOVERY_SCRIPT = "recovery_script"
+CONF_POWER_REDUCER = "power_reducer"
 DEFAULT_ENABLE_REPAIR_NOTIFICATION = True
 DEFAULT_FAILURES_THRESHOLD = 3
 DEFAULT_RECOVERY_SCRIPT = ""
+DEFAULT_POWER_REDUCER = False
 MIN_FAILURES_THRESHOLD = 1
 MAX_FAILURES_THRESHOLD = 10
+DEFAULT_BOOST_DURATION = 120  # minutes
+DEFAULT_BOOST_LEVEL = 100  # percent (100% = full power boost)
+
+# All entity keys that belong to the optional Power Reducer module.
+# Used by __init__.py to enable/disable these entities en masse via the entity registry.
+PR_ENTITY_KEYS: frozenset[str] = frozenset(
+    {
+        # sensors
+        "pr_ssv",
+        "reducer_power",
+        "boost_remaining",
+        "boost_power",
+        "boost_delay",
+        "pr_mode",
+        # binary sensors
+        "boost_active",
+        "pr_load_warning",
+        # numbers
+        "spf_ldw",
+        "spf_spw",
+        "boost_duration",
+        # buttons
+        "boost_start",
+        "boost_cancel",
+        "pr_force_off",
+        "refresh_pr_params",
+        # local-only config
+        "boost_level",
+    }
+)
 
 # Notification IDs
 NOTIFICATION_RECOVERY = "recovery"
@@ -474,5 +511,179 @@ SENSOR_ENTITIES = [
         "state_class": None,
         "unit": None,
         "enabled_default": False,
+    },
+    # Power Reducer sensors (sourced from @dat response)
+    {
+        "name": "Power Reducer Output",
+        "key": "reducer_power",
+        "icon": "mdi:gauge",
+        "device_class": None,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "unit": PERCENTAGE,
+        "enabled_default": False,
+    },
+    {
+        "name": "Boost Time Remaining",
+        "key": "boost_remaining",
+        "icon": "mdi:timer-outline",
+        "device_class": SensorDeviceClass.DURATION,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "unit": UnitOfTime.MINUTES,
+        "enabled_default": False,
+    },
+    {
+        "name": "Boost Power Level",
+        "key": "boost_power",
+        "icon": "mdi:flash-outline",
+        "device_class": None,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "unit": PERCENTAGE,
+        "enabled_default": False,
+    },
+    {
+        "name": "Boost Total Duration",
+        "key": "boost_delay",
+        "icon": "mdi:timer-cog-outline",
+        "device_class": SensorDeviceClass.DURATION,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "unit": UnitOfTime.MINUTES,
+        "enabled_default": False,
+    },
+    {
+        "name": "Power Reducer Mode",
+        "key": "pr_mode",
+        "icon": "mdi:state-machine",
+        "device_class": SensorDeviceClass.ENUM,
+        "state_class": None,
+        "unit": None,
+        "enabled_default": False,
+        "options": ["auto", "boost", "force_off"],
+    },
+    {
+        "name": "Device Clock UTC",
+        "key": "device_clock_utc",
+        "icon": "mdi:clock-outline",
+        "device_class": None,
+        "state_class": None,
+        "unit": None,
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+    {
+        "name": "Clock Drift",
+        "key": "clock_drift",
+        "icon": "mdi:clock-alert-outline",
+        "device_class": SensorDeviceClass.DURATION,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "unit": UnitOfTime.SECONDS,
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
+    },
+]
+
+# Button definitions
+BUTTON_ENTITIES = [
+    {
+        "name": "Start Boost",
+        "key": "boost_start",
+        "icon": "mdi:rocket-launch",
+        "action": "boost_start",
+        "enabled_default": False,
+    },
+    {
+        "name": "Switch to Auto",
+        "key": "boost_cancel",
+        "icon": "mdi:autorenew",
+        "action": "boost_cancel",
+        "enabled_default": False,
+    },
+    {
+        "name": "Power Reducer Force Off",
+        "key": "pr_force_off",
+        "icon": "mdi:power-plug-off",
+        "action": "pr_force_off",
+        "enabled_default": False,
+    },
+    {
+        "name": "Refresh Power Reducer Parameters",
+        "key": "refresh_pr_params",
+        "icon": "mdi:refresh",
+        "action": "refresh_pr_params",
+        "enabled_default": False,
+    },
+    {
+        "name": "Sync Clock",
+        "key": "sync_clock",
+        "icon": "mdi:clock-check-outline",
+        "action": "sync_clock",
+        "enabled_default": True,
+    },
+]
+
+# Number definitions
+NUMBER_ENTITIES = [
+    {
+        "name": "Power Reducer Load Power",
+        "key": "spf_ldw",
+        "icon": "mdi:lightning-bolt",
+        "min": 0,
+        "max": 10000,
+        "step": 50,
+        "unit": UnitOfPower.WATT,
+        "mode": NumberMode.BOX,
+        "par_param": "SPF_LDW",
+    },
+    {
+        "name": "Power Reducer Surplus Threshold",
+        "key": "spf_spw",
+        "icon": "mdi:lightning-bolt-outline",
+        "min": 0,
+        "max": 5000,
+        "step": 50,
+        "unit": UnitOfPower.WATT,
+        "mode": NumberMode.BOX,
+        "par_param": "SPF_SPW",
+    },
+    {
+        "name": "Boost Duration",
+        "key": "boost_duration",
+        "icon": "mdi:timer-outline",
+        "min": 30,
+        "max": 480,
+        "step": 30,
+        "unit": UnitOfTime.MINUTES,
+        "mode": NumberMode.SLIDER,
+        "par_param": None,
+    },
+    {
+        "name": "Boost Level",
+        "key": "boost_level",
+        "icon": "mdi:flash-outline",
+        "min": 10,
+        "max": 100,
+        "step": 10,
+        "unit": PERCENTAGE,
+        "mode": NumberMode.SLIDER,
+        "par_param": None,
+    },
+]
+
+# Binary sensor definitions (boolean 0/1 values from @dat)
+BINARY_SENSOR_ENTITIES = [
+    {
+        "name": "Boost Active",
+        "key": "boost_active",
+        "icon": "mdi:flash",
+        "device_class": BinarySensorDeviceClass.RUNNING,
+        "enabled_default": False,
+        "entity_category": None,  # Operational state — appears in main entity list
+    },
+    {
+        "name": "Power Reducer Load Warning",
+        "key": "pr_load_warning",
+        "icon": "mdi:alarm-light-outline",
+        "device_class": BinarySensorDeviceClass.PROBLEM,
+        "enabled_default": False,
+        "entity_category": EntityCategory.DIAGNOSTIC,
     },
 ]
