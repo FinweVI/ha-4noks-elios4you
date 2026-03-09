@@ -262,17 +262,21 @@ class Elios4YouOptionsFlow(OptionsFlowWithReload):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
+            # EntitySelector returns None when cleared; normalise to "" for storage consistency.
+            normalised = dict(user_input)
+            if not normalised.get(CONF_RECOVERY_SCRIPT):
+                normalised[CONF_RECOVERY_SCRIPT] = ""
             log_debug(
                 _LOGGER,
                 "async_step_init",
                 "Options updated",
-                scan_interval=user_input.get(CONF_SCAN_INTERVAL),
-                power_reducer=user_input.get(CONF_POWER_REDUCER),
-                enable_repair_notification=user_input.get(CONF_ENABLE_REPAIR_NOTIFICATION),
-                failures_threshold=user_input.get(CONF_FAILURES_THRESHOLD),
-                recovery_script=user_input.get(CONF_RECOVERY_SCRIPT),
+                scan_interval=normalised.get(CONF_SCAN_INTERVAL),
+                power_reducer=normalised.get(CONF_POWER_REDUCER),
+                enable_repair_notification=normalised.get(CONF_ENABLE_REPAIR_NOTIFICATION),
+                failures_threshold=normalised.get(CONF_FAILURES_THRESHOLD),
+                recovery_script=normalised.get(CONF_RECOVERY_SCRIPT),
             )
-            return self.async_create_entry(data=user_input)
+            return self.async_create_entry(data=normalised)
 
         # Get current options with defaults
         current_options = self.config_entry.options
@@ -285,50 +289,50 @@ class Elios4YouOptionsFlow(OptionsFlowWithReload):
         )
         recovery_script = current_options.get(CONF_RECOVERY_SCRIPT, DEFAULT_RECOVERY_SCRIPT)
 
+        # EntitySelector rejects "" as an invalid entity ID — only pass a default when a
+        # real script entity is already configured; leave the field empty otherwise.
+        recovery_script_key = (
+            vol.Optional(CONF_RECOVERY_SCRIPT, default=recovery_script)
+            if recovery_script
+            else vol.Optional(CONF_RECOVERY_SCRIPT)
+        )
+
+        schema: dict = {
+            # 1. Power Reducer module checkbox
+            vol.Required(CONF_POWER_REDUCER, default=power_reducer): cv.boolean,
+            # 2. Recovery script (optional — leave blank to disable)
+            recovery_script_key: EntitySelector(EntitySelectorConfig(domain="script")),
+            # 3. Enable repair notifications checkbox
+            vol.Required(
+                CONF_ENABLE_REPAIR_NOTIFICATION,
+                default=enable_repair,
+            ): cv.boolean,
+            # 4. Failures threshold as input box (not slider)
+            vol.Required(
+                CONF_FAILURES_THRESHOLD,
+                default=failures_threshold,
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=MIN_FAILURES_THRESHOLD,
+                    max=MAX_FAILURES_THRESHOLD,
+                    mode=NumberSelectorMode.BOX,
+                )
+            ),
+            # 5. Polling period at bottom
+            vol.Required(
+                CONF_SCAN_INTERVAL,
+                default=current_options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=MIN_SCAN_INTERVAL,
+                    max=MAX_SCAN_INTERVAL,
+                    mode=NumberSelectorMode.BOX,
+                    unit_of_measurement="seconds",
+                )
+            ),
+        }
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    # 1. Power Reducer module checkbox
-                    vol.Required(
-                        CONF_POWER_REDUCER,
-                        default=power_reducer,
-                    ): cv.boolean,
-                    # 2. Recovery script (right after variables description)
-                    vol.Optional(
-                        CONF_RECOVERY_SCRIPT,
-                        default=recovery_script,
-                    ): EntitySelector(
-                        EntitySelectorConfig(domain="script"),
-                    ),
-                    # 3. Enable repair notifications checkbox
-                    vol.Required(
-                        CONF_ENABLE_REPAIR_NOTIFICATION,
-                        default=enable_repair,
-                    ): cv.boolean,
-                    # 4. Failures threshold as input box (not slider)
-                    vol.Required(
-                        CONF_FAILURES_THRESHOLD,
-                        default=failures_threshold,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=MIN_FAILURES_THRESHOLD,
-                            max=MAX_FAILURES_THRESHOLD,
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    ),
-                    # 5. Polling period at bottom
-                    vol.Required(
-                        CONF_SCAN_INTERVAL,
-                        default=current_options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=MIN_SCAN_INTERVAL,
-                            max=MAX_SCAN_INTERVAL,
-                            mode=NumberSelectorMode.BOX,
-                            unit_of_measurement="seconds",
-                        )
-                    ),
-                },
-            ),
+            data_schema=vol.Schema(schema),
         )
