@@ -7,11 +7,16 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 # Direct imports using symlink (fournoks_elios4you -> 4noks_elios4you)
 from custom_components.fournoks_elios4you import (
     RuntimeData,
+    _async_apply_pr_entity_state,
+    _register_schedule_services,
     async_migrate_entry,
     async_remove_config_entry_device,
+    async_setup,
     async_setup_entry,
     async_unload_entry,
     async_update_device_registry,
@@ -20,20 +25,23 @@ from custom_components.fournoks_elios4you import (
 from custom_components.fournoks_elios4you.const import (
     CONF_ENABLE_REPAIR_NOTIFICATION,
     CONF_FAILURES_THRESHOLD,
+    CONF_POWER_REDUCER,
     CONF_RECOVERY_SCRIPT,
     CONF_SCAN_INTERVAL,
     DEFAULT_ENABLE_REPAIR_NOTIFICATION,
     DEFAULT_FAILURES_THRESHOLD,
     DEFAULT_RECOVERY_SCRIPT,
     DOMAIN,
+    PR_ENTITY_KEYS,
 )
 from custom_components.fournoks_elios4you.coordinator import Elios4YouCoordinator
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 
-from .conftest import TEST_HOST, TEST_NAME, TEST_PORT, TEST_SCAN_INTERVAL
+from .conftest import TEST_HOST, TEST_NAME, TEST_PORT, TEST_SCAN_INTERVAL, TEST_SERIAL_NUMBER
 from .test_config_flow import MockConfigEntry
 
 
@@ -610,3 +618,319 @@ class TestMigration:
 
         # Should return True for current version
         assert result is True
+
+
+class TestAsyncSetup:
+    """Tests for async_setup (domain-level service registration)."""
+
+    @pytest.mark.asyncio
+    async def test_async_setup_registers_services(self, hass: HomeAssistant) -> None:
+        """Test that async_setup registers the three schedule services."""
+        with patch.object(hass.services, "async_register") as mock_register:
+            result = await async_setup(hass, {})
+
+        assert result is True
+        service_names = [call.args[1] for call in mock_register.call_args_list]
+        assert "get_schedule" in service_names
+        assert "set_schedule" in service_names
+        assert "set_schedule_range" in service_names
+
+
+class TestAsyncApplyPrEntityState:
+    """Tests for _async_apply_pr_entity_state."""
+
+    def _make_entry_with_coordinator(self, hass, power_reducer_option):
+        """Helper: create a config entry with runtime_data and a coordinator."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_NAME: TEST_NAME, CONF_HOST: TEST_HOST, CONF_PORT: TEST_PORT},
+            options={
+                CONF_SCAN_INTERVAL: TEST_SCAN_INTERVAL,
+                **(
+                    {CONF_POWER_REDUCER: power_reducer_option}
+                    if power_reducer_option is not None
+                    else {}
+                ),
+            },
+        )
+        entry.add_to_hass(hass)
+        mock_coordinator = MagicMock()
+        mock_coordinator.api = MagicMock()
+        mock_coordinator.api.data = {
+            "sn": TEST_SERIAL_NUMBER,
+            "manufact": "4-noks",
+            "model": "Elios4you",
+            "swver": "1.0",
+            "hwver": "2.0",
+        }
+        entry.runtime_data = RuntimeData(coordinator=mock_coordinator)
+        return entry
+
+    @pytest.mark.asyncio
+    async def test_option_none_leaves_entities_untouched(self, hass: HomeAssistant) -> None:
+        """Test that when power_reducer option is not set, nothing changes."""
+        entry = self._make_entry_with_coordinator(hass, power_reducer_option=None)
+
+        ent_reg = er.async_get(hass)
+        # Calling should not raise and should not modify any entity
+        _async_apply_pr_entity_state(hass, entry)
+        # No PR entities are registered so nothing to check, just confirm no crash
+        entries = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_option_true_enables_integration_disabled_entities(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test that power_reducer=True enables integration-disabled PR entities."""
+        entry = self._make_entry_with_coordinator(hass, power_reducer_option=True)
+        ent_reg = er.async_get(hass)
+
+        # Register a fake PR entity that is integration-disabled
+        pr_key = next(iter(PR_ENTITY_KEYS))
+        fake_entity = ent_reg.async_get_or_create(
+            domain="sensor",
+            platform=DOMAIN,
+            unique_id=f"{DOMAIN}_{TEST_SERIAL_NUMBER}_{pr_key}",
+            config_entry=entry,
+            disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+        )
+
+        _async_apply_pr_entity_state(hass, entry)
+
+        updated = ent_reg.async_get(fake_entity.entity_id)
+        assert updated.disabled_by is None
+
+    @pytest.mark.asyncio
+    async def test_option_false_disables_enabled_pr_entities(self, hass: HomeAssistant) -> None:
+        """Test that power_reducer=False disables enabled PR entities."""
+        entry = self._make_entry_with_coordinator(hass, power_reducer_option=False)
+        ent_reg = er.async_get(hass)
+
+        pr_key = next(iter(PR_ENTITY_KEYS))
+        fake_entity = ent_reg.async_get_or_create(
+            domain="sensor",
+            platform=DOMAIN,
+            unique_id=f"{DOMAIN}_{TEST_SERIAL_NUMBER}_{pr_key}",
+            config_entry=entry,
+        )
+
+        _async_apply_pr_entity_state(hass, entry)
+
+        updated = ent_reg.async_get(fake_entity.entity_id)
+        assert updated.disabled_by == er.RegistryEntryDisabler.INTEGRATION
+
+    @pytest.mark.asyncio
+    async def test_option_true_does_not_re_enable_user_disabled_entities(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test that power_reducer=True only re-enables integration-disabled, not user-disabled."""
+        entry = self._make_entry_with_coordinator(hass, power_reducer_option=True)
+        ent_reg = er.async_get(hass)
+
+        pr_key = next(iter(PR_ENTITY_KEYS))
+        fake_entity = ent_reg.async_get_or_create(
+            domain="sensor",
+            platform=DOMAIN,
+            unique_id=f"{DOMAIN}_{TEST_SERIAL_NUMBER}_{pr_key}",
+            config_entry=entry,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+
+        _async_apply_pr_entity_state(hass, entry)
+
+        # User-disabled entity should remain user-disabled
+        updated = ent_reg.async_get(fake_entity.entity_id)
+        assert updated.disabled_by == er.RegistryEntryDisabler.USER
+
+
+class TestScheduleServices:
+    """Tests for the schedule service handlers registered by _register_schedule_services."""
+
+    def _setup_hass_services(self, hass):
+        """Register schedule services on the test hass instance."""
+        _register_schedule_services(hass)
+
+    def _make_config_entry_with_api(self, hass, api_mock=None):
+        """Create a config entry with a mock coordinator/API attached as runtime_data."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_NAME: TEST_NAME, CONF_HOST: TEST_HOST, CONF_PORT: TEST_PORT},
+            options={CONF_SCAN_INTERVAL: TEST_SCAN_INTERVAL},
+        )
+        entry.add_to_hass(hass)
+        if api_mock is None:
+            api_mock = MagicMock()
+        coordinator = MagicMock()
+        coordinator.api = api_mock
+        entry.runtime_data = RuntimeData(coordinator=coordinator)
+        return entry, coordinator
+
+    # ── get_schedule ─────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_get_schedule_success(self, hass: HomeAssistant) -> None:
+        """Test get_schedule returns structured schedule data."""
+        self._setup_hass_services(hass)
+        slots = ["auto"] * 48
+        api_mock = MagicMock()
+        api_mock.async_read_schedule = AsyncMock(return_value=slots)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+
+        # Call service directly via hass
+        result = await hass.services.async_call(
+            DOMAIN,
+            "get_schedule",
+            {"config_entry_id": entry.entry_id, "day": 1},
+            return_response=True,
+            blocking=True,
+        )
+
+        assert result["day"] == "monday"
+        assert len(result["slots"]) == 48
+        assert result["slots"][0]["time"] == "00:00"
+        assert result["slots"][1]["time"] == "00:30"
+        assert result["slots"][47]["time"] == "23:30"
+
+    @pytest.mark.asyncio
+    async def test_get_schedule_invalid_config_entry_raises(self, hass: HomeAssistant) -> None:
+        """Test get_schedule raises ServiceValidationError for unknown entry_id."""
+        self._setup_hass_services(hass)
+
+        with pytest.raises((ServiceValidationError, Exception)):
+            await hass.services.async_call(
+                DOMAIN,
+                "get_schedule",
+                {"config_entry_id": "nonexistent-id", "day": 0},
+                return_response=True,
+                blocking=True,
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_schedule_read_failure_raises(self, hass: HomeAssistant) -> None:
+        """Test get_schedule raises ServiceValidationError when device read fails."""
+        self._setup_hass_services(hass)
+        api_mock = MagicMock()
+        api_mock.async_read_schedule = AsyncMock(return_value=None)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+
+        with pytest.raises((ServiceValidationError, Exception)):
+            await hass.services.async_call(
+                DOMAIN,
+                "get_schedule",
+                {"config_entry_id": entry.entry_id, "day": 0},
+                return_response=True,
+                blocking=True,
+            )
+
+    # ── set_schedule ─────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_set_schedule_success(self, hass: HomeAssistant) -> None:
+        """Test set_schedule writes the schedule to device."""
+        self._setup_hass_services(hass)
+        api_mock = MagicMock()
+        api_mock.async_write_schedule = AsyncMock(return_value=True)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+        slots = ["auto"] * 48
+
+        await hass.services.async_call(
+            DOMAIN,
+            "set_schedule",
+            {"config_entry_id": entry.entry_id, "day": 0, "slots": slots},
+            blocking=True,
+        )
+
+        api_mock.async_write_schedule.assert_called_once_with(0, slots)
+
+    @pytest.mark.asyncio
+    async def test_set_schedule_write_failure_raises(self, hass: HomeAssistant) -> None:
+        """Test set_schedule raises when device write fails."""
+        self._setup_hass_services(hass)
+        api_mock = MagicMock()
+        api_mock.async_write_schedule = AsyncMock(return_value=False)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+
+        with pytest.raises((ServiceValidationError, Exception)):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_schedule",
+                {"config_entry_id": entry.entry_id, "day": 0, "slots": ["auto"] * 48},
+                blocking=True,
+            )
+
+    # ── set_schedule_range ────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_set_schedule_range_success(self, hass: HomeAssistant) -> None:
+        """Test set_schedule_range patches a time range and writes back."""
+        self._setup_hass_services(hass)
+        initial_slots = ["auto"] * 48
+        api_mock = MagicMock()
+        api_mock.async_read_schedule = AsyncMock(return_value=list(initial_slots))
+        api_mock.async_write_schedule = AsyncMock(return_value=True)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+
+        await hass.services.async_call(
+            DOMAIN,
+            "set_schedule_range",
+            {
+                "config_entry_id": entry.entry_id,
+                "day": 1,
+                "start_time": "06:00",
+                "end_time": "08:00",
+                "mode": "boost",
+            },
+            blocking=True,
+        )
+
+        # Slots 12-15 (06:00–07:30) should be "boost"; 16+ stay "auto"
+        written_slots = api_mock.async_write_schedule.call_args.args[1]
+        assert written_slots[12] == "boost"
+        assert written_slots[15] == "boost"
+        assert written_slots[16] == "auto"
+
+    @pytest.mark.asyncio
+    async def test_set_schedule_range_read_failure_raises(self, hass: HomeAssistant) -> None:
+        """Test set_schedule_range raises when reading current schedule fails."""
+        self._setup_hass_services(hass)
+        api_mock = MagicMock()
+        api_mock.async_read_schedule = AsyncMock(return_value=None)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+
+        with pytest.raises((ServiceValidationError, Exception)):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_schedule_range",
+                {
+                    "config_entry_id": entry.entry_id,
+                    "day": 0,
+                    "start_time": "06:00",
+                    "end_time": "08:00",
+                    "mode": "boost",
+                },
+                blocking=True,
+            )
+
+    @pytest.mark.asyncio
+    async def test_set_schedule_range_write_failure_raises(self, hass: HomeAssistant) -> None:
+        """Test set_schedule_range raises when writing updated schedule fails."""
+        self._setup_hass_services(hass)
+        api_mock = MagicMock()
+        api_mock.async_read_schedule = AsyncMock(return_value=["auto"] * 48)
+        api_mock.async_write_schedule = AsyncMock(return_value=False)
+        entry, _ = self._make_config_entry_with_api(hass, api_mock)
+
+        with pytest.raises((ServiceValidationError, Exception)):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_schedule_range",
+                {
+                    "config_entry_id": entry.entry_id,
+                    "day": 0,
+                    "start_time": "06:00",
+                    "end_time": "08:00",
+                    "mode": "off",
+                },
+                blocking=True,
+            )

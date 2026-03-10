@@ -126,6 +126,19 @@ def mock_api_data() -> dict:
         "alarm_1": "OK",
         "alarm_2": "OK",
         "power_alarm": "OK",
+        # Power Reducer fields
+        "boost_active": 0,
+        "pr_load_warning": 0,
+        "boost_duration": 120,
+        "boost_level": 100,
+        "spf_ldw": 500,
+        "spf_spw": 200,
+        "pr_ssv": 0.0,
+        "reducer_power": 0.0,
+        "boost_remaining": 0,
+        "boost_power": 0,
+        "boost_delay": 0,
+        "pr_mode": "auto",
     }
 
 
