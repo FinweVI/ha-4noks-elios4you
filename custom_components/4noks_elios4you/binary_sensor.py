@@ -18,6 +18,7 @@ from .coordinator import Elios4YouCoordinator
 from .helpers import log_debug
 
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(

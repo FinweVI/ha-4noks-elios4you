@@ -56,11 +56,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @callback
-def get_host_from_config(hass: HomeAssistant) -> set[str | None]:
+def get_host_from_config(hass: HomeAssistant) -> set[str]:
     """Return the hosts already configured."""
     return {
-        config_entry.data.get(CONF_HOST)
+        config_entry.data[CONF_HOST]
         for config_entry in hass.config_entries.async_entries(DOMAIN)
+        if CONF_HOST in config_entry.data
     }
 
 

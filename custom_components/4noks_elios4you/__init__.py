@@ -63,7 +63,8 @@ _FRONTEND_SETUP_COMPLETE: set[int] = set()
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register domain-level services once when the integration is first loaded."""
-    _register_schedule_services(hass)
+    if not hass.services.has_service(DOMAIN, "get_schedule"):
+        _register_schedule_services(hass)
     return True
 
 

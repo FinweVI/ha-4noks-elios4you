@@ -19,6 +19,7 @@ from .coordinator import Elios4YouCoordinator
 from .helpers import log_debug
 
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -35,11 +36,11 @@ async def async_setup_entry(
         "async_setup_entry",
         "Setting up sensors",
         name=config_entry.data.get(CONF_NAME),
-        manufacturer=coordinator.api.data["manufact"],
-        model=coordinator.api.data["model"],
-        hw_version=coordinator.api.data["hwver"],
-        sw_version=coordinator.api.data["swver"],
-        serial_number=coordinator.api.data["sn"],
+        manufacturer=coordinator.api.data.get("manufact"),
+        model=coordinator.api.data.get("model"),
+        hw_version=coordinator.api.data.get("hwver"),
+        sw_version=coordinator.api.data.get("swver"),
+        serial_number=coordinator.api.data.get("sn"),
     )
 
     sensors = []
@@ -161,16 +162,6 @@ class Elios4YouSensor(CoordinatorEntity[Elios4YouCoordinator], SensorEntity):
         if self._key in self.coordinator.api.data:
             return self.coordinator.api.data[self._key]
         return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return the extra state attributes."""
-        return None
-
-    @property
-    def should_poll(self) -> bool:
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
 
     @property
     def unique_id(self) -> str:

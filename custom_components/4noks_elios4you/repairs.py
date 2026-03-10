@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from homeassistant.components.persistent_notification import async_create as pn_async_create
 from homeassistant.helpers import issue_registry as ir
 
 if TYPE_CHECKING:
@@ -121,18 +122,8 @@ def create_recovery_notification(
     title = f"{device_name} has recovered"
     notification_id = f"{DOMAIN}_{NOTIFICATION_RECOVERY}_{entry_id}"
 
-    # Use persistent_notification service for immediate display
-    hass.async_create_task(
-        hass.services.async_call(
-            domain="persistent_notification",
-            service="create",
-            service_data={
-                "title": title,
-                "message": message,
-                "notification_id": notification_id,
-            },
-        )
-    )
+    # Use persistent_notification helper (synchronous, no fire-and-forget risk)
+    pn_async_create(hass, message, title=title, notification_id=notification_id)
 
     log_debug(
         _LOGGER,

@@ -24,6 +24,7 @@ from .helpers import log_debug, log_warning
 _DIAGNOSTIC_ACTIONS = {"refresh_pr_params", "sync_clock"}
 
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(

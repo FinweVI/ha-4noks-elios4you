@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -19,6 +19,7 @@ from .coordinator import Elios4YouCoordinator
 from .helpers import log_debug
 
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -65,14 +66,14 @@ class Elios4YouSwitch(CoordinatorEntity[Elios4YouCoordinator], SwitchEntity):
         self._key = key
         self._icon = icon
         self._device_class = device_class
-        self._is_on = self.coordinator.api.data["relay_state"]
+        self._is_on = self.coordinator.api.data.get("relay_state")
         self._device_name: str = str(self.coordinator.api.name)
         self._device_host = self.coordinator.api.host
-        self._device_model: str = str(self.coordinator.api.data["model"])
-        self._device_manufact: str = str(self.coordinator.api.data["manufact"])
-        self._device_sn: str = str(self.coordinator.api.data["sn"])
-        self._device_swver: str = str(self.coordinator.api.data["swver"])
-        self._device_hwver: str = str(self.coordinator.api.data["hwver"])
+        self._device_model: str = str(self.coordinator.api.data.get("model", ""))
+        self._device_manufact: str = str(self.coordinator.api.data.get("manufact", ""))
+        self._device_sn: str = str(self.coordinator.api.data.get("sn", ""))
+        self._device_swver: str = str(self.coordinator.api.data.get("swver", ""))
+        self._device_hwver: str = str(self.coordinator.api.data.get("hwver", ""))
         # Use translation key for entity name (translations in translations/*.json)
         self._attr_translation_key = key
         log_debug(
@@ -91,7 +92,7 @@ class Elios4YouSwitch(CoordinatorEntity[Elios4YouCoordinator], SwitchEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        self._is_on = self.coordinator.api.data["relay_state"]
+        self._is_on = self.coordinator.api.data.get("relay_state")
         self.async_write_ha_state()
         log_debug(
             _LOGGER,
