@@ -45,8 +45,7 @@ So finally here we are with the first official version of the HA custom integrat
 ### Features
 
 - Installation/Configuration through Config Flow UI
-- Sensor entities for all data provided by the device (I don't even know what some of the ones
-  in the diagnostic category specifically represent)
+- Sensor entities for all data provided by the device (41 sensors covering power, energy, diagnostics)
 - Switch entity to control the device internal relay
 - Configuration options: Name, hostname, tcp port, polling period
 - Options flow: change polling period at runtime without restart
@@ -55,6 +54,23 @@ So finally here we are with the first official version of the HA custom integrat
 - Enhanced recovery notifications: detailed timing info (downtime, script execution) with persistent acknowledgment
 - Device triggers: automate based on device connection events (unreachable, not responding, recovered)
 - Diagnostics: downloadable diagnostics file for troubleshooting
+
+#### Power Reducer (disabled by default — enable entities individually)
+
+For devices with the Power Reducer hardware (`has_pr_hw = 1` in diagnostics):
+
+- **Binary sensors**: Boost Active, Power Reducer Load Warning
+- **Buttons**: Start Boost, Switch to Auto, Power Reducer Force Off, Refresh PR Parameters
+- **Number entities**: Load Power (`SPF_LDW`), Surplus Threshold (`SPF_SPW`), Boost Duration, Boost Level
+- **Sensors**: Power Reducer Mode (auto/boost/force_off), Boost Total Duration
+- **Services**: `get_schedule`, `set_schedule`, `set_schedule_range` — read/write the 48-slot weekly schedule
+
+#### Clock Management (disabled by default — enable entities individually)
+
+- **Sensor `device_clock_utc`**: Device internal clock as a proper timestamp (locale-aware rendering in UI)
+- **Sensor `clock_drift`**: Drift in seconds between device clock and HA host (NTP-synced)
+- **Button `sync_clock`** *(enabled by default)*: Send current UTC time to device
+- **Auto-sync**: When drift exceeds 5 minutes, the integration automatically syncs the clock each polling cycle
 
 ### Technical Architecture
 
@@ -70,6 +86,13 @@ This integration uses a fully async telnet implementation via `telnetlib3` to co
 
 - **Single device per integration instance**: Each Elios4you device requires a separate
   integration instance. To monitor multiple devices, add the integration multiple times.
+- **Clock sync threshold**: The device firmware ignores `@CLK` write commands when the drift
+  is less than 5 minutes. The "Sync Clock" button and the auto-sync mechanism are therefore
+  only effective when `clock_drift > 300s`. Smaller drifts are corrected naturally once they
+  accumulate past the threshold.
+- **New entities disabled by default**: Power Reducer and Clock Management entities are disabled
+  by default. Enable them individually in Settings → Devices & services → Elios4you → device →
+  click the "+N entities not shown" link at the bottom of the entity list.
 
 <!-- BEGIN SHARED:repo-sync:installation -->
 <!-- Synced by repo-sync on 2026-02-20 -->
