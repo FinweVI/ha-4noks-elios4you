@@ -1552,9 +1552,11 @@ class TestAsyncParOperations:
         api._ensure_connected = AsyncMock()
         api._async_send_raw = AsyncMock(return_value="@PAR\nPAR SPF_LDW 1850 W")
 
+        before = time.time()
         result = await api.async_read_par("SPF_LDW")
 
         assert result == 1850
+        assert api._last_activity >= before
         api._async_send_raw.assert_awaited_once_with("@PAR SPF_LDW")
 
     @pytest.mark.asyncio
@@ -1602,12 +1604,18 @@ class TestAsyncParOperations:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_read_par_returns_none_on_connection_error(self, mock_hass) -> None:
-        """Returns None and calls _safe_close on TelnetConnectionError."""
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            TelnetConnectionError(TEST_HOST, TEST_PORT, 5),
+            OSError("socket closed"),
+            TimeoutError("read timed out"),
+        ],
+    )
+    async def test_read_par_returns_none_on_connection_exceptions(self, mock_hass, exc) -> None:
+        """Returns None and calls _safe_close for each handled connection exception."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
-        api._ensure_connected = AsyncMock(
-            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
-        )
+        api._ensure_connected = AsyncMock(side_effect=exc)
         api._safe_close = AsyncMock()
 
         result = await api.async_read_par("SPF_LDW")
@@ -1629,10 +1637,12 @@ class TestAsyncParOperations:
         api._ensure_connected = AsyncMock()
         api._async_send_raw = AsyncMock(return_value="OK")
 
+        before = time.time()
         result = await api.async_write_par("SPF_LDW", 2000)
 
         assert result is True
         assert api.data["spf_ldw"] == 2000
+        assert api._last_activity >= before
         api._async_send_raw.assert_awaited_once_with("@PAR SPF_LDW 2000")
 
     @pytest.mark.asyncio
@@ -1649,12 +1659,18 @@ class TestAsyncParOperations:
         api._safe_close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_write_par_returns_false_on_connection_error(self, mock_hass) -> None:
-        """Returns False and calls _safe_close on TelnetConnectionError."""
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            TelnetConnectionError(TEST_HOST, TEST_PORT, 5),
+            OSError("socket closed"),
+            TimeoutError("read timed out"),
+        ],
+    )
+    async def test_write_par_returns_false_on_connection_exceptions(self, mock_hass, exc) -> None:
+        """Returns False and calls _safe_close for each handled connection exception."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
-        api._ensure_connected = AsyncMock(
-            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
-        )
+        api._ensure_connected = AsyncMock(side_effect=exc)
         api._safe_close = AsyncMock()
 
         result = await api.async_write_par("SPF_LDW", 2000)
@@ -1687,9 +1703,11 @@ class TestAsyncScheduleOperations:
         raw = self._make_schedule_response(0, ["2"] * 48)
         api._async_send_raw = AsyncMock(return_value=raw)
 
+        before = time.time()
         result = await api.async_read_schedule(0)
 
         assert result == ["auto"] * 48
+        assert api._last_activity >= before
         api._async_send_raw.assert_awaited_once_with("@PRS 0 0")
 
     @pytest.mark.asyncio
@@ -1744,12 +1762,20 @@ class TestAsyncScheduleOperations:
         assert result[1:] == ["auto"] * 47
 
     @pytest.mark.asyncio
-    async def test_read_schedule_returns_none_on_connection_error(self, mock_hass) -> None:
-        """Returns None and calls _safe_close on TelnetConnectionError."""
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            TelnetConnectionError(TEST_HOST, TEST_PORT, 5),
+            OSError("socket closed"),
+            TimeoutError("read timed out"),
+        ],
+    )
+    async def test_read_schedule_returns_none_on_connection_exceptions(
+        self, mock_hass, exc
+    ) -> None:
+        """Returns None and calls _safe_close for each handled connection exception."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
-        api._ensure_connected = AsyncMock(
-            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
-        )
+        api._ensure_connected = AsyncMock(side_effect=exc)
         api._safe_close = AsyncMock()
 
         result = await api.async_read_schedule(0)
@@ -1787,9 +1813,11 @@ class TestAsyncScheduleOperations:
         api._ensure_connected = AsyncMock()
         api._async_send_raw = AsyncMock(return_value="OK")
 
+        before = time.time()
         result = await api.async_write_schedule(0, ["auto"] * 48)
 
         assert result is True
+        assert api._last_activity >= before
         api._async_send_raw.assert_awaited_once()
         cmd = api._async_send_raw.call_args[0][0]
         assert cmd.startswith("@PRS 1 0 ")
@@ -1823,12 +1851,20 @@ class TestAsyncScheduleOperations:
         api._safe_close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_write_schedule_returns_false_on_connection_error(self, mock_hass) -> None:
-        """Returns False and calls _safe_close on TelnetConnectionError."""
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            TelnetConnectionError(TEST_HOST, TEST_PORT, 5),
+            OSError("socket closed"),
+            TimeoutError("read timed out"),
+        ],
+    )
+    async def test_write_schedule_returns_false_on_connection_exceptions(
+        self, mock_hass, exc
+    ) -> None:
+        """Returns False and calls _safe_close for each handled connection exception."""
         api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
-        api._ensure_connected = AsyncMock(
-            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
-        )
+        api._ensure_connected = AsyncMock(side_effect=exc)
         api._safe_close = AsyncMock()
 
         result = await api.async_write_schedule(0, ["auto"] * 48)
