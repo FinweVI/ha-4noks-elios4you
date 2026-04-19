@@ -3,6 +3,7 @@
 https://github.com/alexdelprete/ha-4noks-elios4you
 """
 
+from datetime import datetime
 import logging
 from typing import Any, cast
 
@@ -157,7 +158,7 @@ class Elios4YouSensor(CoordinatorEntity[Elios4YouCoordinator], SensorEntity):
         return None
 
     @property
-    def native_value(self) -> int | float | str | None:
+    def native_value(self) -> int | float | str | datetime | None:
         """Return the state of the sensor."""
         if self._key in self.coordinator.api.data:
             return self.coordinator.api.data[self._key]

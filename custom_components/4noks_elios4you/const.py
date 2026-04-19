@@ -563,7 +563,7 @@ SENSOR_ENTITIES = [
         "name": "Device Clock UTC",
         "key": "device_clock_utc",
         "icon": "mdi:clock-outline",
-        "device_class": None,
+        "device_class": SensorDeviceClass.TIMESTAMP,
         "state_class": None,
         "unit": None,
         "enabled_default": False,

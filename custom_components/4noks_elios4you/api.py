@@ -169,7 +169,7 @@ class Elios4YouAPI:
         self.data["vendor_id"] = ""  # 2-char hex (vendor ID byte)
         self.data["mc_type"] = ""  # 2-char hex (MC type byte)
         # Clock management
-        self.data["device_clock_utc"] = ""  # "DD.MM.YYYY HH:MM:SS" string
+        self.data["device_clock_utc"] = None  # datetime (UTC) once first clock read succeeds
         self.data["clock_drift"] = 0  # seconds, positive = device ahead
 
     @property
@@ -564,12 +564,12 @@ class Elios4YouAPI:
                 hwver_val = line.split("=", 1)[1].strip()
                 self._parse_hwver(hwver_val)
                 break
-        if len(self.data.get("hwver_raw", "")) != 12:
+        if len(self.data.get("hwver_raw", "")) < 12:
             raise TelnetConnectionError(
                 self._host,
                 self._port,
                 self._timeout,
-                f"Handshake failed: HWVER value not 12 hex chars: {self.data.get('hwver_raw')!r}",
+                f"Handshake failed: HWVER value too short: {self.data.get('hwver_raw')!r}",
             )
         log_debug(
             _LOGGER,
@@ -992,11 +992,11 @@ class Elios4YouAPI:
                 # Clock management: read device clock, compute drift, auto-sync if needed
                 utc_str = await self._async_read_clock()
                 if utc_str:
-                    self.data["device_clock_utc"] = utc_str
                     try:
                         device_dt = datetime.strptime(utc_str, "%d.%m.%Y %H:%M:%S").replace(
                             tzinfo=UTC
                         )
+                        self.data["device_clock_utc"] = device_dt
                         drift = int((device_dt - datetime.now(UTC)).total_seconds())
                         self.data["clock_drift"] = drift
                         if abs(drift) > CLOCK_DRIFT_THRESHOLD:
