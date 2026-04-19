@@ -131,9 +131,7 @@ class TestBinarySensorEntity:
         assert sensor._device_sn == TEST_SERIAL_NUMBER
         assert sensor._device_name == TEST_NAME
 
-    def test_init_pr_load_warning(
-        self, mock_coordinator, pr_load_warning_entity_def
-    ) -> None:
+    def test_init_pr_load_warning(self, mock_coordinator, pr_load_warning_entity_def) -> None:
         """Test binary sensor initialization for pr_load_warning (diagnostic)."""
         sensor = Elios4YouBinarySensor(mock_coordinator, pr_load_warning_entity_def)
 
@@ -189,9 +187,7 @@ class TestBinarySensorEntity:
         mock_coordinator.api.data["boost_active"] = "0"
         assert sensor.is_on is False
 
-    def test_handle_coordinator_update(
-        self, mock_coordinator, boost_active_entity_def
-    ) -> None:
+    def test_handle_coordinator_update(self, mock_coordinator, boost_active_entity_def) -> None:
         """Test _handle_coordinator_update calls async_write_ha_state."""
         sensor = Elios4YouBinarySensor(mock_coordinator, boost_active_entity_def)
         sensor.async_write_ha_state = MagicMock()
@@ -219,9 +215,7 @@ class TestBinarySensorEntity:
 
         assert sensor._attr_entity_registry_enabled_default is False
 
-    def test_entity_has_entity_name(
-        self, mock_coordinator, boost_active_entity_def
-    ) -> None:
+    def test_entity_has_entity_name(self, mock_coordinator, boost_active_entity_def) -> None:
         """Test _attr_has_entity_name is True."""
         sensor = Elios4YouBinarySensor(mock_coordinator, boost_active_entity_def)
 

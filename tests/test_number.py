@@ -240,9 +240,7 @@ class TestNumberSetValue:
         mock_coordinator.api.async_write_par.assert_called_once_with("SPF_LDW", 10000)
 
     @pytest.mark.asyncio
-    async def test_boost_level_local_update(
-        self, mock_coordinator, boost_level_entity_def
-    ) -> None:
+    async def test_boost_level_local_update(self, mock_coordinator, boost_level_entity_def) -> None:
         """Test boost_level local-only update (no par_param)."""
         number = Elios4YouNumber(mock_coordinator, boost_level_entity_def)
         number.async_write_ha_state = MagicMock()

@@ -134,9 +134,7 @@ class TestButtonEntity:
 
         assert button._attr_entity_category == EntityCategory.DIAGNOSTIC
 
-    def test_init_sync_clock_is_diagnostic(
-        self, mock_coordinator, sync_clock_entity_def
-    ) -> None:
+    def test_init_sync_clock_is_diagnostic(self, mock_coordinator, sync_clock_entity_def) -> None:
         """Test sync_clock button gets DIAGNOSTIC entity_category."""
         button = Elios4YouButton(mock_coordinator, sync_clock_entity_def)
 
@@ -263,9 +261,7 @@ class TestButtonPress:
         mock_coordinator.async_refresh.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_sync_clock_success(
-        self, mock_coordinator, sync_clock_entity_def
-    ) -> None:
+    async def test_sync_clock_success(self, mock_coordinator, sync_clock_entity_def) -> None:
         """Test sync_clock calls async_sync_clock and refreshes coordinator."""
         button = Elios4YouButton(mock_coordinator, sync_clock_entity_def)
 
@@ -300,14 +296,10 @@ class TestWaitForBoostState:
         with patch("asyncio.sleep", new_callable=AsyncMock):
             await button._wait_for_boost_state(expected_active=1)
 
-        mock_coordinator.async_set_updated_data.assert_called_once_with(
-            mock_coordinator.api.data
-        )
+        mock_coordinator.async_set_updated_data.assert_called_once_with(mock_coordinator.api.data)
 
     @pytest.mark.asyncio
-    async def test_wait_raises_on_timeout(
-        self, mock_coordinator, boost_start_entity_def
-    ) -> None:
+    async def test_wait_raises_on_timeout(self, mock_coordinator, boost_start_entity_def) -> None:
         """Test _wait_for_boost_state raises HomeAssistantError after 3 failed polls."""
         # boost_active stays at 0, never reaches expected=1
         mock_coordinator.api.data["boost_active"] = 0
