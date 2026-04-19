@@ -1533,3 +1533,305 @@ class TestClockManagement:
 
         assert result is False
         assert api._reader is None
+
+
+class TestAsyncParOperations:
+    """Tests for async_read_par and async_write_par."""
+
+    @pytest.mark.asyncio
+    async def test_read_par_unknown_param_raises(self, mock_hass) -> None:
+        """Unknown param raises ValueError before touching the connection."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        with pytest.raises(ValueError, match="Unknown PAR parameter"):
+            await api.async_read_par("INVALID_PARAM")
+
+    @pytest.mark.asyncio
+    async def test_read_par_success(self, mock_hass) -> None:
+        """Valid param returns integer value parsed from device response."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="@PAR\nPAR SPF_LDW 1850 W")
+
+        result = await api.async_read_par("SPF_LDW")
+
+        assert result == 1850
+        api._async_send_raw.assert_awaited_once_with("@PAR SPF_LDW")
+
+    @pytest.mark.asyncio
+    async def test_read_par_case_insensitive(self, mock_hass) -> None:
+        """Lowercase param name is accepted (validated uppercase internally)."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="@PAR\nPAR SPF_SPW 500 W")
+
+        result = await api.async_read_par("spf_spw")
+
+        assert result == 500
+
+    @pytest.mark.asyncio
+    async def test_read_par_returns_none_when_raw_is_none(self, mock_hass) -> None:
+        """Returns None when device sends no response."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value=None)
+
+        result = await api.async_read_par("SPF_LDW")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_read_par_returns_none_when_no_par_line(self, mock_hass) -> None:
+        """Returns None when response has no matching PAR data line."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="@PAR\nsome other line")
+
+        result = await api.async_read_par("SPF_LDW")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_read_par_returns_none_on_invalid_int(self, mock_hass) -> None:
+        """Returns None when the value field is not a valid integer."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="@PAR\nPAR SPF_LDW notanint W")
+
+        result = await api.async_read_par("SPF_LDW")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_read_par_returns_none_on_connection_error(self, mock_hass) -> None:
+        """Returns None and calls _safe_close on TelnetConnectionError."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock(
+            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
+        )
+        api._safe_close = AsyncMock()
+
+        result = await api.async_read_par("SPF_LDW")
+
+        assert result is None
+        api._safe_close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_write_par_unknown_param_raises(self, mock_hass) -> None:
+        """Unknown param raises ValueError before touching the connection."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        with pytest.raises(ValueError, match="Unknown PAR parameter"):
+            await api.async_write_par("BAD_PARAM", 100)
+
+    @pytest.mark.asyncio
+    async def test_write_par_success(self, mock_hass) -> None:
+        """Successful write returns True and updates local data cache."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="OK")
+
+        result = await api.async_write_par("SPF_LDW", 2000)
+
+        assert result is True
+        assert api.data["spf_ldw"] == 2000
+        api._async_send_raw.assert_awaited_once_with("@PAR SPF_LDW 2000")
+
+    @pytest.mark.asyncio
+    async def test_write_par_returns_false_when_raw_is_none(self, mock_hass) -> None:
+        """Returns False and calls _safe_close when device sends no response."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value=None)
+        api._safe_close = AsyncMock()
+
+        result = await api.async_write_par("SPF_LDW", 2000)
+
+        assert result is False
+        api._safe_close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_write_par_returns_false_on_connection_error(self, mock_hass) -> None:
+        """Returns False and calls _safe_close on TelnetConnectionError."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock(
+            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
+        )
+        api._safe_close = AsyncMock()
+
+        result = await api.async_write_par("SPF_LDW", 2000)
+
+        assert result is False
+        api._safe_close.assert_awaited_once()
+
+
+class TestAsyncScheduleOperations:
+    """Tests for async_read_schedule and async_write_schedule."""
+
+    def _make_schedule_response(self, day: int, slots: list[str]) -> str:
+        """Build a raw device response for a schedule read."""
+        return f"@PRS {day};" + ";".join(slots) + ";"
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_invalid_day_raises(self, mock_hass) -> None:
+        """Day outside 0-6 raises ValueError before touching the connection."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        with pytest.raises(ValueError, match="out of range"):
+            await api.async_read_schedule(7)
+        with pytest.raises(ValueError, match="out of range"):
+            await api.async_read_schedule(-1)
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_success_all_auto(self, mock_hass) -> None:
+        """Returns 48 'auto' strings when device reports all slots as '2'."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        raw = self._make_schedule_response(0, ["2"] * 48)
+        api._async_send_raw = AsyncMock(return_value=raw)
+
+        result = await api.async_read_schedule(0)
+
+        assert result == ["auto"] * 48
+        api._async_send_raw.assert_awaited_once_with("@PRS 0 0")
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_success_mixed_modes(self, mock_hass) -> None:
+        """Correctly maps device codes 0→off, 1→boost, 2→auto."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        slots = ["0"] * 16 + ["1"] * 16 + ["2"] * 16
+        api._async_send_raw = AsyncMock(return_value=self._make_schedule_response(1, slots))
+
+        result = await api.async_read_schedule(1)
+
+        assert result is not None
+        assert result[:16] == ["off"] * 16
+        assert result[16:32] == ["boost"] * 16
+        assert result[32:] == ["auto"] * 16
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_returns_none_when_raw_is_none(self, mock_hass) -> None:
+        """Returns None when device sends no response."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value=None)
+
+        result = await api.async_read_schedule(0)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_returns_none_on_wrong_slot_count(self, mock_hass) -> None:
+        """Returns None when response does not contain exactly 48 slots."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value=self._make_schedule_response(0, ["2"] * 10))
+
+        result = await api.async_read_schedule(0)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_unknown_slot_defaults_to_auto(self, mock_hass) -> None:
+        """Unknown device slot code is treated as 'auto' with a warning."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        slots = ["9"] + ["2"] * 47  # first slot is unknown code "9"
+        api._async_send_raw = AsyncMock(return_value=self._make_schedule_response(0, slots))
+
+        result = await api.async_read_schedule(0)
+
+        assert result is not None
+        assert result[0] == "auto"
+        assert result[1:] == ["auto"] * 47
+
+    @pytest.mark.asyncio
+    async def test_read_schedule_returns_none_on_connection_error(self, mock_hass) -> None:
+        """Returns None and calls _safe_close on TelnetConnectionError."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock(
+            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
+        )
+        api._safe_close = AsyncMock()
+
+        result = await api.async_read_schedule(0)
+
+        assert result is None
+        api._safe_close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_invalid_day_raises(self, mock_hass) -> None:
+        """Day outside 0-6 raises ValueError before any write."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        slots = ["auto"] * 48
+        with pytest.raises(ValueError, match="out of range"):
+            await api.async_write_schedule(7, slots)
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_wrong_slot_count_returns_false(self, mock_hass) -> None:
+        """Returns False immediately when slots list is not exactly 48."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        result = await api.async_write_schedule(0, ["auto"] * 10)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_invalid_mode_returns_false(self, mock_hass) -> None:
+        """Returns False immediately when any slot contains an invalid mode."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        slots = ["auto"] * 47 + ["invalid"]
+        result = await api.async_write_schedule(0, slots)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_success(self, mock_hass) -> None:
+        """Successful write returns True."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="OK")
+
+        result = await api.async_write_schedule(0, ["auto"] * 48)
+
+        assert result is True
+        api._async_send_raw.assert_awaited_once()
+        cmd = api._async_send_raw.call_args[0][0]
+        assert cmd.startswith("@PRS 1 0 ")
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_reverses_groups(self, mock_hass) -> None:
+        """Each 8-slot group is reversed in the command (device right-to-left storage)."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value="OK")
+        # First 8 slots: 4×off then 4×boost → codes "0000" + "1111"
+        # Reversed group: "11110000"
+        slots = ["off"] * 4 + ["boost"] * 4 + ["auto"] * 40
+        await api.async_write_schedule(0, slots)
+
+        cmd = api._async_send_raw.call_args[0][0]
+        first_group = cmd.split(" ")[3]  # "@PRS 1 0 <group1> ..."
+        assert first_group == "11110000"
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_returns_false_when_raw_is_none(self, mock_hass) -> None:
+        """Returns False and calls _safe_close when device sends no response."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock()
+        api._async_send_raw = AsyncMock(return_value=None)
+        api._safe_close = AsyncMock()
+
+        result = await api.async_write_schedule(0, ["auto"] * 48)
+
+        assert result is False
+        api._safe_close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_write_schedule_returns_false_on_connection_error(self, mock_hass) -> None:
+        """Returns False and calls _safe_close on TelnetConnectionError."""
+        api = Elios4YouAPI(mock_hass, TEST_NAME, TEST_HOST, TEST_PORT)
+        api._ensure_connected = AsyncMock(
+            side_effect=TelnetConnectionError(TEST_HOST, TEST_PORT, 5)
+        )
+        api._safe_close = AsyncMock()
+
+        result = await api.async_write_schedule(0, ["auto"] * 48)
+
+        assert result is False
+        api._safe_close.assert_awaited_once()
